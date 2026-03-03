@@ -27,6 +27,7 @@
 
 #include <QFileInfo>
 #include <QDir>
+#include <qtextstream.h>
 
 #include <vcg/complex/append.h>
 #include <vcg/complex/algorithms/update/topology.h>
@@ -51,6 +52,7 @@ FilterTextureDefragPlugin::FilterTextureDefragPlugin()
 {
 	typeList = {
 	    FP_TEXTURE_DEFRAG,
+		FP_SIMPLE_TEXTURE_DEFRAG,
 	};
 
 	for(ActionIDType tt: types())
@@ -70,19 +72,23 @@ QString FilterTextureDefragPlugin::filterName(ActionIDType filterId) const
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("Texture Map Defragmentation");
+	case FP_SIMPLE_TEXTURE_DEFRAG:
+		return QString("Simple Texture Map Defragmentation");
 	default:
 		assert(0);
 	}
 	return {};
 }
 
-QString FilterTextureDefragPlugin::pythonFilterName(ActionIDType f) const
+QString FilterTextureDefragPlugin::pythonFilterName(ActionIDType filterId) const
 {
-	switch(f) {
+	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("apply_texmap_defragmentation");
+	case FP_SIMPLE_TEXTURE_DEFRAG:
+		return QString("apply_simple_texmap_defragmentation");
 	default:
-		assert(0); return QString();
+		assert(0);
 	}
 	return {};
 }
@@ -95,19 +101,19 @@ QString FilterTextureDefragPlugin::filterInfo(ActionIDType filterId) const
 		               The used algorithm is: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 		               <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
 		               Eurographics 2021");
-	default:
-		assert(0);
+	case FP_SIMPLE_TEXTURE_DEFRAG:
+		return QString("A more user-friendly alternative to the base Texture Map Defragmentation algorithm.");
+	default: assert(0);
 	}
-	return QString("Unknown Filter");
+	return {"Unknown Filter"};
 }
 
 int FilterTextureDefragPlugin::getPreConditions(const QAction *a) const
 {
 	switch (ID(a)) {
-	case FP_TEXTURE_DEFRAG:
-		return MeshModel::MM_WEDGTEXCOORD;
-	default:
-		assert(0);
+		case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD;
+		case FP_SIMPLE_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD;
+		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
 }
@@ -115,10 +121,9 @@ int FilterTextureDefragPlugin::getPreConditions(const QAction *a) const
 int FilterTextureDefragPlugin::getRequirements(const QAction *a)
 {
 	switch (ID(a)) {
-	case FP_TEXTURE_DEFRAG:
-		return MeshModel::MM_FACEFACETOPO;
-	default:
-		assert(0);
+		case FP_TEXTURE_DEFRAG : return MeshModel::MM_FACEFACETOPO;
+		case FP_SIMPLE_TEXTURE_DEFRAG : return MeshModel::MM_FACEFACETOPO;
+		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
 }
@@ -126,21 +131,20 @@ int FilterTextureDefragPlugin::getRequirements(const QAction *a)
 bool FilterTextureDefragPlugin::requiresGLContext(const QAction* a) const
 {
 	switch (ID(a)) {
-	case FP_TEXTURE_DEFRAG:
-		return true;
-	default:
-		assert(0);
-		return false;
+	case FP_TEXTURE_DEFRAG: return true;
+	case FP_SIMPLE_TEXTURE_DEFRAG: return true;
+	default: assert(0); return false;
 	}
 }
 
 int FilterTextureDefragPlugin::postCondition(const QAction *a) const
 {
 	switch (ID(a)) {
-	case FP_TEXTURE_DEFRAG:
-		return MeshModel::MM_WEDGTEXCOORD | MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
-	default:
-		assert(0);
+	case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD |
+									MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
+	case FP_SIMPLE_TEXTURE_DEFRAG: return MeshModel::MM_WEDGTEXCOORD |
+										  MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE;
+	default: assert(0);
 	}
 	return MeshModel::MM_NONE;
 }
@@ -148,10 +152,9 @@ int FilterTextureDefragPlugin::postCondition(const QAction *a) const
 FilterTextureDefragPlugin::FilterClass FilterTextureDefragPlugin::getClass(const QAction *a) const
 {
 	switch (ID(a)) {
-	case FP_TEXTURE_DEFRAG:
-		return FilterPlugin::Texture;
-	default:
-		assert(0);
+		case FP_TEXTURE_DEFRAG:  return FilterPlugin::Texture;
+		case FP_SIMPLE_TEXTURE_DEFRAG: return FilterPlugin::Texture;
+		default: assert(0);
 	}
 	return FilterPlugin::Generic;
 }
@@ -201,6 +204,43 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 		                    0.0,
 		                    "Time limit (seconds)",
 		                    "Time limit for the defragmentation process (zero means unlimited)."));
+		break;
+	case FP_SIMPLE_TEXTURE_DEFRAG:
+		parlst.addParam(RichInt(
+			"tgtIslandCount",
+			1,
+			"Target Island Count",
+			"The number of atlas regions the starting texture will be packed."));
+		parlst.addParam(RichFloat(
+			"minIslandSize",
+			1.0,
+			"Minimum Island Size",
+			"All islands smaller than the given thresholds will e removed. "
+				   "Small areas below this threshold are merged first."));
+		parlst.addParam(RichEnum(
+			"qualitySpeedTradeoff",
+			0,
+			QStringList("Fast") << "Balanced" << "Precise",
+			"Quality vs. Speed Tradeoff",
+			"Determines the algorithm accuracy."));
+		parlst.addParam(RichBool(
+			"allowRescaling",
+			true,
+			"Allow Rescaling",
+			"If set to true the algorithm prioritizes clean packing over size preservation. "
+				   "If false the algorithm tries harder to preserve relative texel density."));
+		parlst.addParam(RichEnum(
+			"outputTextureResolution",
+			0,
+			QStringList("Original") << "512" << "1024" << "2048" << "4096" << "8192" << "16384",
+			"Output Texture Resolution",
+			"Specifies the dimension of the final square texture to the user"));
+		parlst.addParam(RichInt(
+			"timeLimit",
+			0,
+			"Time limit (seconds)",
+			"Time limit for the defragmentation process (zero means unlimited).",
+			true));
 		break;
 	default:
 		break;
@@ -409,6 +449,10 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 		QDir::setCurrent(wd.absolutePath());
 	}
 		break;
+	case FP_SIMPLE_TEXTURE_DEFRAG: {
+		std::cout << "Simple Texture Defragmentation" << std::endl;
+	}
+		break;
 
 	default:
 		wrongActionCalled(filter);
@@ -420,8 +464,9 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 FilterPlugin::FilterArity FilterTextureDefragPlugin::filterArity(const QAction * filter ) const
 {
 	switch(ID(filter)) {
-	case FP_TEXTURE_DEFRAG:
-		return FilterPlugin::SINGLE_MESH;
+		case FP_TEXTURE_DEFRAG: return FilterPlugin::SINGLE_MESH;
+		case FP_SIMPLE_TEXTURE_DEFRAG: return FilterPlugin::SINGLE_MESH;
+		default: wrongActionCalled(filter);
 	}
 
 	return FilterPlugin::NONE;
