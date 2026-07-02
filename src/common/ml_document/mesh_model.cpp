@@ -302,11 +302,34 @@ void MeshModel::updateDataMask()
 		currentDataMask |= MM_WEDGTEXCOORD;
 }
 
+/*!
+ * Given another MeshModel instance, denoted as `meshToMimic`, we want to update the current model
+ * s.t. the properties specified by the bet mask of the parameter are added to it.
+ * At the end our data mask will be:
+ * mesh.currentDataMask <- mesh.currentDataMask | meshToMimic.currentDataMask
+ *
+ * @param m: a MeshModel instance from which we retrieve the data mask that we want to add to the current model.
+ */
 void MeshModel::updateDataMask(const MeshModel *m)
 {
 	updateDataMask(m->currentDataMask);
 }
 
+/*!
+ * All MeshModel instances have a private field called `currentDataMask`.
+ * This private variable is a bit mask (stored as an int) that describes the property of the model, guaranteeing
+ * that all data structures of the instance are filled and arranged in a way that satisfies them.
+ *
+ * For example, the second less-significant-bit (i.e., 10) is assigned to the property `MM_VERTNORMAL`, meaning
+ * that each mesh having said code in its bit mask must precompute the normals of each of its vertices.
+ *
+ * The method `updateDataMask` updates the current mesh by adding all the necessary data to
+ * satisfy the properties listed in `targetMask`. After execution the mesh's `currentDataMask` now adds
+ * the missing properties of `targetMask`, i.e.:
+ * mesh.currentDataMask <- mesh.currentDataMask | targetMash
+ *
+ * @param neededDataMask: the bit sequence specifying the properties the instance has to satisfy.
+ */
 void MeshModel::updateDataMask(int neededDataMask)
 {
 	if((neededDataMask & MM_FACEFACETOPO)!=0)

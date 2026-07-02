@@ -35,6 +35,16 @@ ARAP::ARAP(Mesh& mesh)
 {
 }
 
+/*!
+ * Marks a vertex as fixed, meaning it stays pinned in the ARAP optimization
+ * solution that will be computed. Note that fixed vertices used by a previous
+ * ARAP steps remain marked as such. ARAP keeps track of them in the two static
+ * data structures `fixed_i` and `fixed_pos` holding respectively their indices
+ * within the mesh and its UV position.
+ * 
+ * @param vp: the vertex pointer.
+ * @param pos: the pinned UV position of the vertex.
+ */
 void ARAP::FixVertex(Mesh::ConstVertexPointer vp, const vcg::Point2d& pos)
 {
     fixed_i.push_back(tri::Index(m, vp));
@@ -51,8 +61,18 @@ void ARAP::FixBoundaryVertices()
     }
 }
 
+/*!
+ * Determines the amount of fixed vertices (i.e., those that aren't modified
+ * by the ARAP procedure). As a side effect, for each of them we store
+ * their indices and UV positions in the ARAP data structures `fixed_i` and
+ * `fixed_pos`.
+ *
+ * @return the number of fixed vertices within the input mesh.
+ */
 int ARAP::FixSelectedVertices()
 {
+    // Recall that all fixed vertices are marked as `SELECTED`
+    // within the input mesh.
     int nfixed = 0;
     for (auto& v : m.vert) {
         if (v.IsS()) {
@@ -66,12 +86,51 @@ int ARAP::FixSelectedVertices()
 
 /* This function fixes the vertices of an edge that is within 2pct of the target
  * edge length */
+
+/*!
+ * The ARAP optimization requires at least two fixed vertices within the input
+ * mesh; otherwise the optimizer has infinitely many valid solutions to consider.
+ *
+ * This function fixes two vertices, being the endpoints of an edge whose distance
+ * between its original position and target one is within the provided tolerance.
+ *
+ * @param tol: the tolerance.
+ * @return The number of fixed vertices. If the operation is successful, it is
+ *         always two, otherwise zero.
+ */
 int ARAP::FixRandomEdgeWithinTolerance(double tol)
 {
+    // We must avoid choosing vertices that have been fixed by a previous
+    // call to the ARAP optimization. All vertices that have been pinned
+    // are stored in the static vector `fixed_i`.
+    //
+    // To make the search over them constant, we copy the content of `fixed_i`
+    // into the local unordered set `fixed`.
     std::unordered_set<int> fixed;
     for (int i : fixed_i)
         fixed.insert(i);
 
+    // We search over the mesh, iterating on each face, for the first edge
+    // satisfying the following functions:
+    //
+    // * the distance between its current UV length and its target UV length is within
+    //    the provided tolerance.
+    //
+    // * both endpoints haven't been fixed previously.
+    //
+    // The lengths are computed as:
+    //
+    // * `dcurr`: the current UV-length of this edge, retrieved from its current
+    //            UV Wedge coordinates.
+    //
+    // * `dtarget`: the target UV-length, retrieved from the target shape of the
+    //              face containing it.
+    //
+    // If an edge has been found, pin the vertices at its current UV position
+    // (via fix Vertex), adding them to the solver's fixed set.
+    //
+    // Tell the caller that the operation was a success returning the number
+    // of fixed vertices (i.e., two).
     auto tsa = GetTargetShapeAttribute(m);
     for (auto& f : m.face) {
         for (int i = 0; i < 3; ++i) {
@@ -87,6 +146,9 @@ int ARAP::FixRandomEdgeWithinTolerance(double tol)
             }
         }
     }
+
+    // We weren't able to find a suitable edge, meaning the operation was a failer.
+    // Tell the caller by returning zero (i.e., no vertex was fixed).
     return 0;
 }
 
@@ -245,6 +307,40 @@ double ARAP::ComputeEnergy(const vcg::Point2d& x10, const vcg::Point2d& x20,
     return std::pow(sigma[0] - 1.0, 2.0) + std::pow(sigma[1] - 1.0, 2.0);
 }
 
+/*!
+ * Computes the global As-Rigid-As-Possible (ARAP) distortion energy for a mesh. This energy measures how much
+ * the transformation for moving from the original UV space to the target UV space differs from a pure rigid
+ * transformation (i.e., one requiring only rotations and translations).
+ *
+ * The energy is computed as the weighted sum of all local energies, divided by the total area. Formally:
+ * global energy = ( Σ_{f in Faces} e_f * w_f ) / Σ_{f in Faces} (f.area)
+ * where our weights w_f are the local area of face f.
+ *
+ * Note that the computed numerator and denominator of the global energy are stored in the associated parameters.
+ *
+ * @param m: the mesh instance
+ * @param num: pointer that will be updated with the numerator of the global ARAP energy.
+ * @param denom: pointer that will be updated with the denominator of the global ARAP energy.
+ * @return the global ARAP energy.
+ */
+
+/*!
+ * Compute the global As-Rigid-As-Possible (ARAP) distortion energy for a limited portion of a mesh (i.e., a set
+ * of faces). The computed energy quantifies how much the transportation for moving from the original UV space to the
+ * target UV space differs from a pure rigid transformation (i.e., one requiring only rotations and translations).
+ *
+ * The energy is computed as the weighted sum of all local energies, divided by the total area. Formally:
+ * global energy = ( Σ_{f in Faces} e_f * w_f ) / Σ_{f in Faces} (f.area)
+ * where our weights w_f are the local area of face f.
+ *
+ * Note that the computed numerator and denominator of the global energy are stored in the associated parameters.
+ *
+ * @param fpVec: a vector of faces, usually representing a subset of a mesh.
+ * @param m: the mesh instance.
+ * @param num: pointer that will be updated with the numerator of the global ARAP energy.
+ * @param denom: pointer that will be updated with the denominator of the global ARAP energy.
+ * @return the global ARAP energy.
+ */
 double ARAP::ComputeEnergyFromStoredWedgeTC(const std::vector<Mesh::FacePointer>& fpVec, Mesh& m, double *num, double *denom)
 {
     double n = 0;
@@ -269,12 +365,41 @@ double ARAP::ComputeEnergyFromStoredWedgeTC(const std::vector<Mesh::FacePointer>
     return n / d;
 }
 
+/*!
+ * Computes the global As-Rigid-As-Possible (ARAP) distortion energy. This energy measures how much the transformation
+ * for moving from the original UV space to the target UV space differs from a pure rigid transformation (i.e. one
+ * requiring only rotations and translations).
+ * The energy is computed as the weighted sum of all weighted local energies, divided by the total area. Formally:
+ * global energy = ( Σ_{f in Faces} e_f * w_f ) / Σ_{f in Faces} (f.area)
+ * where our weights w_f are the local area of face f.
+ * Note that the computed numerator and denominator of the global energy are stored in the associated parameters.
+ * @param m: the mesh instance
+ * @param num: pointer that will be updated with the numerator of the global ARAP energy.
+ * @param denom: pointer that will be updated with the denominator of the global ARAP energy.
+ * @return the global ARAP energy.
+ */
 double ARAP::ComputeEnergyFromStoredWedgeTC(Mesh& m, double *num, double *denom)
 {
     double e = 0;
     double total_area = 0;
     auto tsa = GetWedgeTexCoordStorageAttribute(m);
+
     for (auto& f : m.face) {
+        // For each face whose area is non-zero, we measure its local distortion. The local distortion determines how much
+        // the triangle is stretched along its UV axis when moving from its original coordinates to the target ones.
+        //
+        // First, we represent the transformation from the original UV space to the target one as a 2x2 Jacobian
+        // transformation matrix Jf. It can be decomposed via the Single Value Decomposition (SVD) technique as the following:
+        // Jf = U * Σ * V^{t} where
+        // * U and V represent rotations.
+        // * Σ = diag(σ_0, σ_1) represent scaling applied over the axis.
+        // σ_0 and σ_1 are the principal stretch factors of the transformation, and they will be used to measure local
+        // distortion.
+        //
+        // The local energy e_f measures how much the local transformation differs from a pure ARAP
+        // transformation (i.e., one consisting only in rotations).
+        // It is computed as:
+        // e_f = area_f * ( (σ_0 - 1)^2 + (σ_1 - 1)^2 )
         vcg::Point2d x10 = tsa[f].tc[1].P() - tsa[f].tc[0].P();
         vcg::Point2d x20 = tsa[f].tc[2].P() - tsa[f].tc[0].P();
         double area_f = std::abs(x10 ^ x20);
@@ -289,6 +414,7 @@ double ARAP::ComputeEnergyFromStoredWedgeTC(Mesh& m, double *num, double *denom)
             e += area_f * (std::pow(sigma[0] - 1.0, 2.0) + std::pow(sigma[1] - 1.0, 2.0));
         }
     }
+
     if (num)
         *num = e;
     if (denom)
@@ -317,34 +443,122 @@ double ARAP::CurrentEnergy()
     return e / total_area;
 }
 
+/*!
+ * Computes the As-Rigid-As-Possible (ARAP) optimization for the input mesh.
+ * The goal is to determine new UV values for each face of the mesh that decrease
+ * the ARAP energy.
+ *
+ * The ARAP energy quantifies the distortion introduced by the merge operation, measuring
+ * how much the current transformation mapping from the base UVs to the target UVs differs
+ * from a rigid transformation (i.e. one involving only rotations and/or translations).
+ *
+ * @return: a struct describing the state of the ARAP solution. If the field `numericalError`
+ *          is set to true, then the algorithm failed.
+ */
 ARAPSolveInfo ARAP::Solve()
 {
+    // The solution of the ARAP optimization procedure is managed within a struct of type
+    // ARAPSolveInfo. An instance contains the following fields:
+    //
+    //  * initialEnergy: the initial ARAP energy. It quantifies for the starting UV
+    //                   coordinates how much different the transformation needed for
+    //                   moving the current UVs to the target UVs is from a rigid
+    //                   transformation.
+    //
+    //  * finalEnergy: the resulting ARAP energy, computed over the computed optimized
+    //                 UV positions. To be convenient, it must be smaller compared to
+    //                 the original energy.
+    //
+    //  * iterations: defined the upper bound of possible ARAP iterations we can do.
+    //
+    //  * numericalError: boolean flag indicating when set to true that the ARAP algorithm failed.
+    //
+    // This instance is returned by the function for each possible scenario.
     ARAPSolveInfo si = {0, 0, 0, false};
+
+    // For each face we apply the Laplace-Beltrami operator (using the cotangent formula).
+    // to compute its local geometric structure (via ComputeCotangentVector).
+    //
+    // Recall that the cotangent formula defines for each edge in a face a weight `we`
+    // computed as:
+    // we = ( cot(alpha) + cot(beta) ) / 2
+    // where `alpha` and `beta` are the angles opposite to that edge in the two adjacent
+    // triangles.
     std::vector<Cot> cotan = ComputeCotangentVector(m);
 
+    // The ARAP optimization problem is a sparse linear system. On the left-hand side
+    // of the equation we have our known data (the cotangent weights and fixed
+    // vertices), on the right we have the solution (the optimal UVs).
+    //
+    // The left-hand side is usually represented as a matrix, called the cotangent Laplacian
+    // of the mesh. Each row in the matrix corresponding to a fixed vertex is set as the
+    // identity row. This matrix is constant across all the ARAP execution, since it depends
+    // on fixed values.
     Eigen::SparseMatrix<double> A;
     ComputeSystemMatrix(m, cotan, A);
 
+    // The solution consists in the optimal UV coordinates. The ARAP algorithm
+    // finds the U and V coordinates separately. For this reason we distribute the
+    // current U and V positions of each vertex across the vectors `xu` and `xv`.
     Eigen::VectorXd xu = Eigen::VectorXd::Constant(m.VN(), 0);
     Eigen::VectorXd xv = Eigen::VectorXd::Constant(m.VN(), 0);
 
     double e = CurrentEnergy();
 
-    // The system matrix is not symmetric
+    // To solve the linear system efficiently, the cotangent Laplacian matrix `A`
+    // must be factorized through LU decomposition (via `SparseLU`).
+    //
+    // This factorization is divided in two steps:
+    //
+    //  * analyzePattern: analyzes the sparsity pattern to plan the decomposition.
+    //
+    //  * factorize: performs the actual numerical factorization.
+    //
+    // If the factorization fails, we set the `numericalError` flag and return immediately.
     Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
-
     solver.analyzePattern(A);
     solver.factorize(A);
-
     if (solver.info() != Eigen::Success) {
         LOG_WARN << "Cotan matrix factorization failed: " << solver.info();
         si.numericalError = true;
         return si;
     }
 
+    // We retrieve the ARAP energy of the area before optimization. It will be used at the
+    // end to check if our solution improves the original energy.
     si.initialEnergy = CurrentEnergy();
-    LOG_DEBUG << "ARAP: Starting energy is " << si.initialEnergy;
 
+    // The ARAP algorithm consists in a series of iterations, alternating between a
+    // local step (computing optimal rotations) and global steps (finding the optimal
+    // UV positions for the computed rotations).
+    //
+    // The algorithm continues alternating between the two until we either reached
+    // convergence or we exceeded the iteration limit.
+    //
+    // ======================== LOCAL STEP ========================
+    // For each face we want to find the best-fit rotation that maps the
+    // target shape into its current UV position (i.e., the rotation that
+    // minimizes its local ARAP energy).
+    //
+    // Since we are working over a bidimensional domain, the rotation is
+    // represented as a 2x2 matrix. Computed, we extract from it its
+    // singular values (s0, s1), representing the rotation components) via
+    // Singular Value Decomposition (SVD).
+    //
+    // ======================== GLOBAL STEP ========================
+    // Given the per-face rotations computed from the previous local step,
+    // find the right-hand side UVs of our sparse linear system. Recall
+    // that we solve the system twice, one per each coordinate. The two
+    // solutions will be stored in `bu` and `bv` respectively.
+    //
+    // The newly found UV coordinates are written back into the per-Wedge
+    // and per-Vertex UVs of the mesh.
+    //
+    // The ARAP energy is recomputed after the positions are updated. If the
+    // distance between the previous ARAP energy and the new one is below
+    // the threshold `1e-8`, then we reached convergence. Otherwise, we start
+    // a new iteration.
+    LOG_DEBUG << "ARAP: Starting energy is " << si.initialEnergy;
     bool converged = false;
     int iter = 0;
     while (!converged && iter < max_iter) {
@@ -403,7 +617,11 @@ ARAPSolveInfo ARAP::Solve()
 
     LOG_DEBUG << "ARAP: Energy after optimization is " << CurrentEnergy() << " (" << iter << " iterations)";
 
-    // Extra step to ensure the fixed vertices do not move at all
+    // Even though we have explicitly pinned the fixed vertices into
+    // the cotangent Laplacian matrix `A`, the solver could slightly
+    // change them due to numerical floating-point errors.
+    // To guarantee consistency, we overwrite all fixed vertices with
+    // their expected UV values.
     for (unsigned i = 0; i < fixed_i.size(); ++i) {
         m.vert[fixed_i[i]].T().P() = fixed_pos[i];
     }
