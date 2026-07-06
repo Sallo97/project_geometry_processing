@@ -158,7 +158,7 @@ void ExtractUVCoordinates(ClusteredSeamHandle csh, std::vector<Point2d>& uva, st
  * @param seamMesh: pointer to an empty instance which will be constructed by the process.
  * @param graph: the UV parametrization.
  */
-void BuildSeamMesh(Mesh& m, SeamMesh& seamMesh, GraphHandle graph)
+void BuildSeamMesh(Mesh& m, SeamMesh& seamMesh, const GraphHandle &graph)
 {
     seamMesh.Clear();
 

@@ -52,7 +52,7 @@ FilterTextureDefragPlugin::FilterTextureDefragPlugin()
 {
 	typeList = {
 	    FP_TEXTURE_DEFRAG,
-		FP_SIMPLE_TEXTURE_DEFRAG,
+		FP_SMALL_ISLANDS_REMOVER,
 	};
 
 	for(ActionIDType tt: types())
@@ -72,8 +72,8 @@ QString FilterTextureDefragPlugin::filterName(ActionIDType filterId) const
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("Texture Map Defragmentation");
-	case FP_SIMPLE_TEXTURE_DEFRAG:
-		return QString("Simple Texture Map Defragmentation");
+	case FP_SMALL_ISLANDS_REMOVER:
+		return QString("Texture Small Island Merger");
 	default:
 		assert(0);
 	}
@@ -85,7 +85,7 @@ QString FilterTextureDefragPlugin::pythonFilterName(ActionIDType filterId) const
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("apply_texmap_defragmentation");
-	case FP_SIMPLE_TEXTURE_DEFRAG:
+	case FP_SMALL_ISLANDS_REMOVER:
 		return QString("apply_simple_texmap_defragmentation");
 	default:
 		assert(0);
@@ -101,9 +101,9 @@ QString FilterTextureDefragPlugin::filterInfo(ActionIDType filterId) const
 		               The used algorithm is: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 		               <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
 		               Eurographics 2021");
-	case FP_SIMPLE_TEXTURE_DEFRAG:
-		return QString("Given a textured mesh, it reduces the number of textures and islands according to the user's preference. \
-						   At its core is a more user-friendly version of the filter \"Texture Map Defragmentation\", which itself is \
+	case FP_SMALL_ISLANDS_REMOVER:
+		return QString("Given a textured mesh, it merges all texture islands whose size is smaller than a specified treshold. \
+						   Its implementation is based on the filter \"Texture Map Defragmentation\", which itself is \
 						   based upon the algorithm: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 						   <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
 		                   Eurographics 2021");
@@ -116,7 +116,7 @@ int FilterTextureDefragPlugin::getPreConditions(const QAction *a) const
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD;
-		case FP_SIMPLE_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD;
+		case FP_SMALL_ISLANDS_REMOVER : return MeshModel::MM_WEDGTEXCOORD;
 		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
@@ -126,7 +126,7 @@ int FilterTextureDefragPlugin::getRequirements(const QAction *a)
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG : return MeshModel::MM_FACEFACETOPO;
-		case FP_SIMPLE_TEXTURE_DEFRAG : return MeshModel::MM_FACEFACETOPO;
+		case FP_SMALL_ISLANDS_REMOVER : return MeshModel::MM_FACEFACETOPO;
 		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
@@ -136,7 +136,7 @@ bool FilterTextureDefragPlugin::requiresGLContext(const QAction* a) const
 {
 	switch (ID(a)) {
 	case FP_TEXTURE_DEFRAG: return true;
-	case FP_SIMPLE_TEXTURE_DEFRAG: return true;
+	case FP_SMALL_ISLANDS_REMOVER: return true;
 	default: assert(0); return false;
 	}
 }
@@ -146,7 +146,7 @@ int FilterTextureDefragPlugin::postCondition(const QAction *a) const
 	switch (ID(a)) {
 	case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD |
 									MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
-	case FP_SIMPLE_TEXTURE_DEFRAG: return MeshModel::MM_WEDGTEXCOORD |
+	case FP_SMALL_ISLANDS_REMOVER: return MeshModel::MM_WEDGTEXCOORD |
 										  MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
 	default: assert(0);
 	}
@@ -157,7 +157,7 @@ FilterTextureDefragPlugin::FilterClass FilterTextureDefragPlugin::getClass(const
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG:  return FilterPlugin::Texture;
-		case FP_SIMPLE_TEXTURE_DEFRAG: return FilterPlugin::Texture;
+		case FP_SMALL_ISLANDS_REMOVER: return FilterPlugin::Texture;
 		default: assert(0);
 	}
 	return FilterPlugin::Generic;
@@ -209,31 +209,19 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 		                    "Time limit (seconds)",
 		                    "Time limit for the defragmentation process (zero means unlimited)."));
 		break;
-	case FP_SIMPLE_TEXTURE_DEFRAG:
-		parlst.addParam(RichInt(
-			"texturesNum",
-			0,
-			"Number of final texture images",
-			"The exact quantity of UV-layouts the algorithm needs to generate. When set to zero this parameter is ignored."));
-
+	case FP_SMALL_ISLANDS_REMOVER:
 		parlst.addParam( RichInt(
-			"regionsNum",
+			"minAreaThreshold",
 			0,
-			"Number of final texture regions",
-			"The exact quantity of UV-charts the algorithm needs to generate. When set to zero this parameter is ignored."
+			"The minimum size for islands to remain untouched",
+			"All UV charts whose area is strictly minor that it will be merged; otherwise they are untouched. When set to zero is ignored."
 		));
 		parlst.addParam(RichFloat(
-			"minRegionArea",
-			0,
-			"Minimum Island Size",
-			"All UV-island whose area is smaller or equal to this value are highly probable of being removed (i.e. merged). When set to zero this parameter is ignored"
-				   ));
-		parlst.addParam(RichBool(
-			"allowRescaling",
-			true,
-			"Allow Rescaling",
-			"If set to true the algorithm prioritizes clean packing over size preservation. "
-				   "If false the algorithm tries to preserve the relative texel density."));
+					"timelimit",
+					0.0,
+					"Time limit (seconds)",
+					"Time limit for the defragmentation process (zero means unlimited)."));
+
 		break;
 	default:
 		break;
@@ -249,303 +237,320 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
         unsigned int& /*postConditionMask*/,
         CallBackPos *cb)
 {
-	const MeshModel &currentModel = *(md.mm());
-	switch(ID(filter)) {
-	case FP_TEXTURE_DEFRAG:
-	{
-		cb(0, "Initializing layer...");
-
-		// We create a new MeshLab layer, denoted as `mm`, containing a copy of the current model.
-		// This filter will work on this duplicate rather than the original.
-		//
-		// The texture path is saved for later use.
-		MeshModel& mm = *(md.addNewMesh(md.mm()->cm, "texdefrag_" + currentModel.label()));
-		mm.updateDataMask(&currentModel);
-		QString path = currentModel.pathName();
-
-		// Before processing, we need to clean the input mesh from:
-		//
-		//	* degenerate faces (i.e., triangles having zero area).
-		//
-		//	* sets of vertices sharing the same 3D position. These will be collapsed into a single one.
-		//
-		//	* vertices marked as `DELETED`. Their entries will be removed in the mesh's vertex data structure.
-		//
-		//	* Rebuilt the FACE-FACE adjacency topology to take into account the new changes.
-		//
-		// Note that the Texture Defragmentation filter assumes that the input mesh is manifold.
-		// If a non-manifold edge is found, a warning is issued.
-		tri::Clean<CMeshO>::RemoveZeroAreaFace(mm.cm);
-		tri::Clean<CMeshO>::RemoveDuplicateVertex(mm.cm);
-		tri::Allocator<CMeshO>::CompactEveryVector(mm.cm);
-		tri::UpdateTopology<CMeshO>::FaceFace(mm.cm);
-		if (tri::Clean<CMeshO>::CountNonManifoldEdgeFF(mm.cm) > 0)
-			log(GLLogStream::Levels::WARNING, "Texture Defragmentation: mesh has non-manifold edges, seam topology may be unreliable");
-
-		// Switch working directory
-		QDir wd = QDir::current();
-		QDir::setCurrent(path);
-
-		// Texture Defragmentation defines its own type (`Mesh`) for working with meshes.
-		// We will construct an instance of the said type, denoted as `defragMesh` from our input MeshLab model.
-		// The building process copies position-by-position the vertices from the source. Faces are set up with
-		// their vertex pointers and wedge texture coordinates.
-		//
-		// From now on the filter will use only `defragMesh`, thus we will refer to it as the input mesh.
-		Mesh defragMesh;
-		auto fi = tri::Allocator<Mesh>::AddFaces(defragMesh, mm.cm.FN());
-		auto vi = tri::Allocator<Mesh>::AddVertices(defragMesh, mm.cm.VN());
-		for (int i = 0; i < mm.cm.VN(); ++i) {
-			vi->P().X() = mm.cm.vert[i].P().X();
-			vi->P().Y() = mm.cm.vert[i].P().Y();
-			vi->P().Z() = mm.cm.vert[i].P().Z();
-			++vi;
-		}
-		for (int i = 0; i < mm.cm.FN(); ++i) {
-			for (int k = 0; k < 3; ++k) {
-				fi->V(k) = &defragMesh.vert[mm.cm.face[i].cV(k)->Index()];
-				fi->WT(k).U() = mm.cm.face[i].cWT(k).U();
-				fi->WT(k).V() = mm.cm.face[i].cWT(k).V();
-				fi->WT(k).N() = mm.cm.face[i].cWT(k).N();
-			}
-			++fi;
-		}
-		for (auto& f : defragMesh.face)
-			f.SetMesh();
-
-		// All texture images referenced by the mesh are loaded into a TextureObject.
-		// This instance provides direct access to the raw pixel data for UV-to-pixel
-		// coordinate conversion. It will by also used by the final resampling phase.
-		TextureObjectHandle textureObject = std::make_shared<TextureObject>();
-		for (const std::string& textureName : currentModel.cm.textures) {
-			textureObject->AddImage(currentModel.getTexture(textureName));
-		}
-
-		// Retrieve all user-specified parameters from the MeshLab's Texture Defragmentation
-		// dialog window and pack them into the AlgoParameters instance `ap`. This object is
-		// just a collection of values.
-		AlgoParameters ap;
-		ap.matchingThreshold = par.getFloat("matchingThreshold");
-		ap.boundaryTolerance = par.getFloat("boundaryTolerance");
-		ap.distortionTolerance = par.getFloat("distortionTolerance");
-		ap.globalDistortionThreshold = par.getFloat("globalDistortionTolerance");
-		ap.UVBorderLengthReduction = par.getFloat("uvReductionLimit") / 100.0f;
-		ap.offsetFactor = par.getFloat("offsetFactor");
-		ap.timelimit = par.getFloat("timelimit");
-
-		// For the TextureDefragmentation mesh instance, we build its FACE-FACE
-		// adjacency topology and compute the normalized face and vertex normal.
-		// The normals will be needed by the As-Rigid-As-Possible (ARAP) optimization.
-		tri::UpdateTopology<Mesh>::FaceFace(defragMesh);
-		tri::UpdateNormal<Mesh>::PerFaceNormalized(defragMesh);
-		tri::UpdateNormal<Mesh>::PerVertexNormalized(defragMesh);
-
-		// As of now the mesh stores the UV coordinates within the range [0,1] (i.e., normalized).
-		// We need to convert them into the pixel space (i.e., in respect to the texture images'
-		// resolution). This is done by multiplying each UV position by the texture's width and
-		// height.
-		ScaleTextureCoordinatesToImage(defragMesh, textureObject);
-
-		// We apply three fundamental setup steps on the input mesh:
-		//
-		//	* Compute3DFace stores the original 3D mesh adjacency information before
-		//	  our cutting of the seams modifies the topology.
-		//
-		//	* CutAlongSeam splits the mesh along the UV seams by duplicating
-		//	  vertices, making Face-Face adjacency stop at the chart boundaries.
-		//
-		//	* ComputeGraph identifies the UV charts and build the chart adjacency graph.
-		Compute3DFaceAdjacencyAttribute(defragMesh);
-		CutAlongSeams(defragMesh);
-		GraphHandle graph = ComputeGraph(defragMesh, textureObject);
-
-		// Recall that a non-manifold vertex is one which is incident to at least two
-		// distinct sheets of faces. We resolve non-manifold vertices by duplicating
-		// them such that each sheet has its own copy. These new vertices are then
-		// displaced from one another.
-		//
-		// This fixing procedure is implemented by the function `SplitNonManifoldVertex`.
-		// A call to the function only splits the vertex into two copies, meaning
-		// that if the vertex is shared among more than two sheets, multiple calls
-		// are necessary. For this reason we wrap the function inside a loop.
-		//
-		// After removing any non-manifold vertex we compact the vertex data structure
-		// of the input mesh.
-		while (tri::Clean<Mesh>::SplitNonManifoldVertex(defragMesh, 0))
-			;
-		tri::Allocator<Mesh>::CompactEveryVector(defragMesh);
-
-		// `DisconnectCharts` gives each chart its own private copy of the vertices at the boundary.
-		// In this way charts are fully topologically independent of one another. Since this
-		// process increases drastically the number of vertices (for each seam across two charts, its
-		// endpoints are duplicated), we need to rebuild both the FACE-FACE and VERTEX-FACE topology.
-		DisconnectCharts(graph);
-		tri::UpdateTopology<Mesh>::FaceFace(defragMesh);
-		tri::UpdateTopology<Mesh>::VertexFace(defragMesh);
-
-		// We snapshot the current per-Wedge UV coordinates into a separate
-		// per-face attribute of the input mesh. This backup serves as the
-		// baseline parametrization throughout the Texture Defragmentation.
-		ComputeWedgeTexCoordStorageAttribute(defragMesh);
-
-		// Some charts may have their UV triangles oriented clockwise, resulting flipped compared to
-		// the standard counter-clockwise orientation. We detect these charts and reorient them to
-		// ensure a consistent orientation across the atlas.
-		//
-		// The original flip states are recorded in the attribute `flipped`. When generating the final
-		// optimized mesh, we need to rollback the original orientation.
-		std::map<RegionID, bool> flipped;
-		for (auto& c : graph->charts)
-			flipped[c.first] = c.second->UVFlipped();
-		ReorientCharts(graph);
-
-		// run defragmentation algorithm
-
-		// The Texture Defragmentation main execution is divided in three phases:
-		//
-		//	* `InitializeState` constructs a mesh containing only edges belonging to a seam. After individualizing
-		//	  them, it builds the seams, represented as continuous chains of edges. The seams are then clustered
-		//	  by the pair of charts sharing them. Each group identifies a merge operation, and for each we compute
-		//	  its initial cost. All clusters are pushed into a priority queue, ordering them from most convenient
-		//	  to least according to their cost.
-		//
-		//	* `GreedyOptimization` runs a greedy merge loop, repeatedly merging the currently most convenient
-		//	  merge operation. After a merge it tries to run an As-Rigid-As-Possible (ARAP) optimization to fix
-		//	  the introduced distortion. Note that if the merge introduces too much distortion or unfixable
-		//	  overlaps, it is rejected and its operations are rolled back.
-		//
-		//	* `Finalize` prepares the now optimized input mesh to be returned, collapsing coincident duplicate
-		//	  vertices, removing orphaned vertices and rebuilding topologies.
-		std::map<ChartHandle, int> anchorMap;
-		AlgoStateHandle state = InitializeState(graph, ap);
-		cb(20, "Defragmenting atlas...");
-		GreedyOptimization(graph, state, ap);
-		int vndupOut;
-		Finalize(graph, &vndupOut);
-
-		bool colorize = true;
-		if (colorize)
-			tri::UpdateColor<Mesh>::PerFaceConstant(defragMesh, vcg::Color4b(91, 130, 200, 255));
-
-		// To diminish texture resampling as much as possible, each chart will be aligned optimally within
-		// the final layout. This is handled by the `RotateChartForResampling` function which uses the flip
-		// info computed early to ensure the computed rotations are applied consistently.
-		//
-		// Charts that can be anchored (i.e., pinned to a specific orientation) are recorded in `anchorMap`.
-		// They will be used during the packing phase.
-		for (auto& entry : graph->charts) {
-			ChartHandle chart = entry.second;
-			double zeroResamplingChartArea;
-			int anchor = RotateChartForResampling(chart, state->changeSet, flipped, colorize, &zeroResamplingChartArea);
-			if (anchor != -1) {
-				anchorMap[chart] = anchor;
-			}
-		}
-
-		cb(70, "Packing atlas...");
-
-		// Charts having UV area set to zero needs to be excluded from the packing phase.
-		// This is done by zeroing their UV coordinates.
-		std::vector<ChartHandle> chartsToPack;
-		for (auto& entry : graph->charts) {
-			if (entry.second->AreaUV() != 0) {
-				chartsToPack.push_back(entry.second);
-			} else {
-				for (auto fptr : entry.second->fpVec) {
-					for (int j = 0; j < fptr->VN(); ++j) {
-						fptr->V(j)->T().P() = Point2d::Zero();
-						fptr->V(j)->T().N() = 0;
-						fptr->WT(j).P() = Point2d::Zero();
-						fptr->WT(j).N() = 0;
-					}
-				}
-			}
-		}
-
-		// Our packer algorithm assumes manifold or boundary edges. In the presence of non-manifold
-		// edges, we set them to reference themselves (i.e., they become borders).
-		for (auto& f : graph->mesh.face) {
-			for (int i = 0; i < 3; ++i) {
-				if (!face::IsManifold(f, i)) {
-					f.FFp(i) = &f;
-					f.FFi(i) = i;
-				}
-			}
-		}
-
-		// The UV atlas packing procedure is managed by the `Pack` function, which
-		// uses a bin-packing strategy. All charts are arranged into as few textures
-		// as possible, each having the requested resolution (specified in `texszVec`).
-		// The function returns the number of charts that have been packed. If this
-		// number is not equal to the number of charts, then an error occurred.
-		//
-		// `TrimTexture` adjusts the generated textures sizes by removing unused space.
-		//
-		// Finally, to decrease resampling, all charts that have been aligned through
-		// rigid transformations must move by an integer amount of pixel (otherwise
-		// subpixel bleeding could occur). This property is enforced by `IntegerShift`.
-		std::vector<TextureSize> texszVec;
-		int npacked = Pack(chartsToPack, textureObject, texszVec);
-		if (npacked < (int) chartsToPack.size())
-			throw MLException("Error: Packing failed (not all charts were packed)");
-		TrimTexture(defragMesh, texszVec, false);
-		IntegerShift(defragMesh, chartsToPack, texszVec, anchorMap, flipped);
-
-		// The new texture images are rendered by rastering the mesh with the original textures
-		// as input. The resampling of the original textures uses linear interpolation
-		glContext->makeCurrent();
-		GLExtensionsManager::initializeGLextensions();
-		std::vector<std::shared_ptr<QImage>> newTextures = RenderTexture(defragMesh, textureObject, texszVec, true, RenderMode::Linear);
-		glContext->doneCurrent();
-
-		// The optimized Wedge UV coordinates are copied back into the MeshLab layer.
-		// The texture index `N()` is also copied, since the packing step may have
-		// redistributed charts across multiple textures.
-		if (mm.cm.FN() != defragMesh.FN())
-			throw MLException("TextureDefragmentation: Unexpected face count mismatch with proxy mesh");
-		for (int i = 0; i < defragMesh.FN(); ++i) {
-			for (int k = 0; k < 3; ++k) {
-				mm.cm.face[i].WT(k).U() = defragMesh.face[i].WT(k).U();
-				mm.cm.face[i].WT(k).V() = defragMesh.face[i].WT(k).V();
-				mm.cm.face[i].WT(k).N() = defragMesh.face[i].WT(k).N();
-			}
-		}
-
-		// The old textures are cleared and replaced with the new rendered ones.
-		// Finally, the layer now references the new textures computed by the
-		// filter.
-		//
-		// The working directory is restored.
-		cb(90, "Saving textures...");
-		mm.clearTextures();
-
-		const char *imageFormat = "png";
-		QString textureBase = mm.label() + "_optimized_texture_";
-		for (unsigned i = 0; i < newTextures.size(); ++i) {
-			QString tname = textureBase + QString(std::to_string(i).c_str()) + "." + imageFormat;
-			mm.addTexture(tname.toStdString(), *newTextures[i]);
-		}
-		cb(100, "Done!");
-		QDir::setCurrent(wd.absolutePath());
-	}
-		break;
-	case FP_SIMPLE_TEXTURE_DEFRAG: {
-
-	}
-		break;
-
-	default:
+	if (ID(filter) != FP_TEXTURE_DEFRAG &&
+		ID(filter) != FP_SMALL_ISLANDS_REMOVER) {
 		wrongActionCalled(filter);
 	}
 
+	// ==================== COMMON INITIALIZATION PROCEDURE ====================
+	// All variations of Texture Defragmentation share the same initialization code.
+
+	// Common variables that are declared here, but will be used further in.
+	std::vector<std::shared_ptr<QImage>> newTextures;
+	std::map<ChartHandle, int> anchorMap;
+
+
+	const MeshModel &currentModel = *(md.mm());
+
+	cb(0, "Initializing layer...");
+
+	// We create a new MeshLab layer, denoted as `mm`, containing a copy of the current model.
+	// This filter will work on this duplicate rather than the original.
+	//
+	// The texture path is saved for later use.
+	MeshModel& mm = *(md.addNewMesh(md.mm()->cm, "texdefrag_" + currentModel.label()));
+	mm.updateDataMask(&currentModel);
+	QString path = currentModel.pathName();
+
+	// Before processing, we need to clean the input mesh from:
+	//
+	//	* degenerate faces (i.e., triangles having zero area).
+	//
+	//	* sets of vertices sharing the same 3D position. These will be collapsed into a single one.
+	//
+	//	* vertices marked as `DELETED`. Their entries will be removed in the mesh's vertex data structure.
+	//
+	//	* Rebuilt the FACE-FACE adjacency topology to take into account the new changes.
+	//
+	// Note that the Texture Defragmentation filter assumes that the input mesh is manifold.
+	// If a non-manifold edge is found, a warning is issued.
+	tri::Clean<CMeshO>::RemoveZeroAreaFace(mm.cm);
+	tri::Clean<CMeshO>::RemoveDuplicateVertex(mm.cm);
+	tri::Allocator<CMeshO>::CompactEveryVector(mm.cm);
+	tri::UpdateTopology<CMeshO>::FaceFace(mm.cm);
+	if (tri::Clean<CMeshO>::CountNonManifoldEdgeFF(mm.cm) > 0)
+		log(GLLogStream::Levels::WARNING, "Texture Defragmentation: mesh has non-manifold edges, seam topology may be unreliable");
+
+	// Switch working directory
+	QDir wd = QDir::current();
+	QDir::setCurrent(path);
+
+	// Texture Defragmentation defines its own type (`Mesh`) for working with meshes.
+	// We will construct an instance of the said type, denoted as `defragMesh` from our input MeshLab model.
+	// The building process copies position-by-position the vertices from the source. Faces are set up with
+	// their vertex pointers and wedge texture coordinates.
+	//
+	// From now on the filter will use only `defragMesh`, thus we will refer to it as the input mesh.
+	Mesh defragMesh;
+	auto fi = tri::Allocator<Mesh>::AddFaces(defragMesh, mm.cm.FN());
+	auto vi = tri::Allocator<Mesh>::AddVertices(defragMesh, mm.cm.VN());
+	for (int i = 0; i < mm.cm.VN(); ++i) {
+		vi->P().X() = mm.cm.vert[i].P().X();
+		vi->P().Y() = mm.cm.vert[i].P().Y();
+		vi->P().Z() = mm.cm.vert[i].P().Z();
+		++vi;
+	}
+	for (int i = 0; i < mm.cm.FN(); ++i) {
+		for (int k = 0; k < 3; ++k) {
+			fi->V(k) = &defragMesh.vert[mm.cm.face[i].cV(k)->Index()];
+			fi->WT(k).U() = mm.cm.face[i].cWT(k).U();
+			fi->WT(k).V() = mm.cm.face[i].cWT(k).V();
+			fi->WT(k).N() = mm.cm.face[i].cWT(k).N();
+		}
+		++fi;
+	}
+	for (auto& f : defragMesh.face)
+		f.SetMesh();
+
+	// All texture images referenced by the mesh are loaded into a TextureObject.
+	// This instance provides direct access to the raw pixel data for UV-to-pixel
+	// coordinate conversion. It will by also used by the final resampling phase.
+	TextureObjectHandle textureObject = std::make_shared<TextureObject>();
+	for (const std::string& textureName : currentModel.cm.textures) {
+		textureObject->AddImage(currentModel.getTexture(textureName));
+	}
+
+	// For the TextureDefragmentation mesh instance, we build its FACE-FACE
+	// adjacency topology and compute the normalized face and vertex normal.
+	// The normals will be needed by the As-Rigid-As-Possible (ARAP) optimization.
+	tri::UpdateTopology<Mesh>::FaceFace(defragMesh);
+	tri::UpdateNormal<Mesh>::PerFaceNormalized(defragMesh);
+	tri::UpdateNormal<Mesh>::PerVertexNormalized(defragMesh);
+
+	// As of now the mesh stores the UV coordinates within the range [0,1] (i.e., normalized).
+	// We need to convert them into the pixel space (i.e., in respect to the texture images'
+	// resolution). This is done by multiplying each UV position by the texture's width and
+	// height.
+	ScaleTextureCoordinatesToImage(defragMesh, textureObject);
+
+	// We apply three fundamental setup steps on the input mesh:
+	//
+	//	* Compute3DFace stores the original 3D mesh adjacency information before
+	//	  our cutting of the seams modifies the topology.
+	//
+	//	* CutAlongSeam splits the mesh along the UV seams by duplicating
+	//	  vertices, making Face-Face adjacency stop at the chart boundaries.
+	//
+	//	* ComputeGraph identifies the UV charts and builds the chart adjacency graph.
+	Compute3DFaceAdjacencyAttribute(defragMesh);
+	CutAlongSeams(defragMesh);
+	GraphHandle graph = ComputeGraph(defragMesh, textureObject);
+
+	// Recall that a non-manifold vertex is one which is incident to at least two
+	// distinct sheets of faces. We resolve non-manifold vertices by duplicating
+	// them such that each sheet has its own copy. These new vertices are then
+	// displaced from one another.
+	//
+	// This fixing procedure is implemented by the function `SplitNonManifoldVertex`.
+	// A call to the function only splits the vertex into two copies, meaning
+	// that if the vertex is shared among more than two sheets, multiple calls
+	// are necessary. For this reason we wrap the function inside a loop.
+	//
+	// After removing any non-manifold vertex we compact the vertex data structure
+	// of the input mesh.
+	while (tri::Clean<Mesh>::SplitNonManifoldVertex(defragMesh, 0))
+		;
+	tri::Allocator<Mesh>::CompactEveryVector(defragMesh);
+
+	// `DisconnectCharts` gives each chart its own private copy of the vertices at the boundary.
+	// In this way charts are fully topologically independent of one another. Since this
+	// process increases drastically the number of vertices (for each seam across two charts, its
+	// endpoints are duplicated), we need to rebuild both the FACE-FACE and VERTEX-FACE topology.
+	DisconnectCharts(graph);
+	tri::UpdateTopology<Mesh>::FaceFace(defragMesh);
+	tri::UpdateTopology<Mesh>::VertexFace(defragMesh);
+
+	// We snapshot the current per-Wedge UV coordinates into a separate
+	// per-face attribute of the input mesh. This backup serves as the
+	// baseline parametrization throughout the Texture Defragmentation.
+	ComputeWedgeTexCoordStorageAttribute(defragMesh);
+
+	// Some charts may have their UV triangles oriented clockwise, resulting flipped compared to
+	// the standard counter-clockwise orientation. We detect these charts and reorient them to
+	// ensure a consistent orientation across the atlas.
+	//
+	// The original flip states are recorded in the attribute `flipped`. When generating the final
+	// optimized mesh, we need to rollback the original orientation.
+	std::map<RegionID, bool> flipped;
+	for (auto& c : graph->charts)
+		flipped[c.first] = c.second->UVFlipped();
+	ReorientCharts(graph);
+
+	// run defragmentation algorithm
+
+	// Retrieve all user-specified parameters from the MeshLab's Texture Defragmentation
+	// dialog window and pack them into the AlgoParameters instance `ap`. This object is
+	// just a collection of values.
+	AlgoParameters ap;
+	ap.filterType = ID(filter);
+	switch (ID(filter)) {
+		case FP_TEXTURE_DEFRAG: {
+			ap.matchingThreshold = par.getFloat("matchingThreshold");
+			ap.boundaryTolerance = par.getFloat("boundaryTolerance");
+			ap.distortionTolerance = par.getFloat("distortionTolerance");
+			ap.globalDistortionThreshold = par.getFloat("globalDistortionTolerance");
+			ap.UVBorderLengthReduction = par.getFloat("uvReductionLimit") / 100.0f;
+			ap.offsetFactor = par.getFloat("offsetFactor");
+			ap.timelimit = par.getFloat("timelimit");
+		}
+		break;
+
+		case FP_SMALL_ISLANDS_REMOVER: {
+			ap.minAreaThreshold = par.getFloat("minAreaThreshold");
+			ap.timelimit = par.getFloat("timelimit");
+		}
+		break;
+
+		default: wrongActionCalled(filter);
+	}
+
+	// The Texture Defragmentation main execution is divided in three phases:
+	//
+	//	* `InitializeState` constructs a mesh containing only edges belonging to a seam. After individualizing
+	//	  them, it builds the seams, represented as continuous chains of edges. The seams are then clustered
+	//	  by the pair of charts sharing them. Each group identifies a merge operation, and for each we compute
+	//	  its initial cost. All clusters are pushed into a priority queue, ordering them from most convenient
+	//	  to least according to their cost.
+	//
+	//	* `GreedyOptimization` runs a greedy merge loop, repeatedly merging the currently most convenient
+	//	  merge operation. After a merge it tries to run an As-Rigid-As-Possible (ARAP) optimization to fix
+	//	  the introduced distortion. Note that if the merge introduces too much distortion or unfixable
+	//	  overlaps, it is rejected and its operations are rolled back.
+	//
+	//	* `Finalize` prepares the now optimized input mesh to be returned, collapsing coincident duplicate
+	//	  vertices, removing orphaned vertices and rebuilding topologies.
+	AlgoStateHandle state = InitializeState(graph, ap);
+	cb(20, "Defragmenting atlas...");
+	GreedyOptimization(graph, state, ap);
+	int vndupOut;
+	Finalize(graph, &vndupOut);
+
+	bool colorize = true;
+	if (colorize)
+		tri::UpdateColor<Mesh>::PerFaceConstant(defragMesh, vcg::Color4b(91, 130, 200, 255));
+
+	// To diminish texture resampling as much as possible, each chart will be aligned optimally within
+	// the final layout. This is handled by the `RotateChartForResampling` function which uses the flip
+	// info computed early to ensure the computed rotations are applied consistently.
+	//
+	// Charts that can be anchored (i.e., pinned to a specific orientation) are recorded in `anchorMap`.
+	// They will be used during the packing phase.
+	for (auto& entry : graph->charts) {
+		ChartHandle chart = entry.second;
+		double zeroResamplingChartArea;
+		int anchor = RotateChartForResampling(chart, state->changeSet, flipped, colorize, &zeroResamplingChartArea);
+		if (anchor != -1) {
+			anchorMap[chart] = anchor;
+		}
+	}
+	// ==================== COMMON TERMINATION PROCEDURE ====================
+
+	cb(70, "Packing atlas...");
+
+	// Charts having UV area set to zero needs to be excluded from the packing phase.
+	// This is done by zeroing their UV coordinates.
+	std::vector<ChartHandle> chartsToPack;
+	for (auto& entry : graph->charts) {
+		if (entry.second->AreaUV() != 0) {
+			chartsToPack.push_back(entry.second);
+		} else {
+			for (auto fptr : entry.second->fpVec) {
+				for (int j = 0; j < fptr->VN(); ++j) {
+					fptr->V(j)->T().P() = Point2d::Zero();
+					fptr->V(j)->T().N() = 0;
+					fptr->WT(j).P() = Point2d::Zero();
+					fptr->WT(j).N() = 0;
+				}
+			}
+		}
+	}
+
+	// Our packer algorithm assumes manifold or boundary edges. In the presence of non-manifold
+	// edges, we set them to reference themselves (i.e., they become borders).
+	for (auto& f : graph->mesh.face) {
+		for (int i = 0; i < 3; ++i) {
+			if (!face::IsManifold(f, i)) {
+				f.FFp(i) = &f;
+				f.FFi(i) = i;
+			}
+		}
+	}
+
+	// The UV atlas packing procedure is managed by the `Pack` function, which
+	// uses a bin-packing strategy. All charts are arranged into as few textures
+	// as possible, each having the requested resolution (specified in `texszVec`).
+	// The function returns the number of charts that have been packed. If this
+	// number is not equal to the number of charts, then an error occurred.
+	//
+	// `TrimTexture` adjusts the generated textures sizes by removing unused space.
+	//
+	// Finally, to decrease resampling, all charts that have been aligned through
+	// rigid transformations must move by an integer amount of pixel (otherwise
+	// subpixel bleeding could occur). This property is enforced by `IntegerShift`.
+	std::vector<TextureSize> texszVec;
+	int npacked = Pack(chartsToPack, textureObject, texszVec);
+	if (npacked < (int) chartsToPack.size())
+		throw MLException("Error: Packing failed (not all charts were packed)");
+	TrimTexture(defragMesh, texszVec, false);
+	IntegerShift(defragMesh, chartsToPack, texszVec, anchorMap, flipped);
+
+	// The new texture images are rendered by rastering the mesh with the original textures
+	// as input. The resampling of the original textures uses linear interpolation
+	glContext->makeCurrent();
+	GLExtensionsManager::initializeGLextensions();
+	newTextures = RenderTexture(defragMesh, textureObject, texszVec, true, RenderMode::Linear);
+	glContext->doneCurrent();
+
+	// The optimized Wedge UV coordinates are copied back into the MeshLab layer.
+	// The texture index `N()` is also copied, since the packing step may have
+	// redistributed charts across multiple textures.
+	if (mm.cm.FN() != defragMesh.FN())
+		throw MLException("TextureDefragmentation: Unexpected face count mismatch with proxy mesh");
+	for (int i = 0; i < defragMesh.FN(); ++i) {
+		for (int k = 0; k < 3; ++k) {
+			mm.cm.face[i].WT(k).U() = defragMesh.face[i].WT(k).U();
+			mm.cm.face[i].WT(k).V() = defragMesh.face[i].WT(k).V();
+			mm.cm.face[i].WT(k).N() = defragMesh.face[i].WT(k).N();
+		}
+	}
+
+	// The old textures are cleared and replaced with the new rendered ones.
+	// Finally, the layer now references the new textures computed by the
+	// filter.
+	//
+	// The working directory is restored.
+	cb(90, "Saving textures...");
+	mm.clearTextures();
+
+	const char *imageFormat = "png";
+	QString textureBase = mm.label() + "_optimized_texture_";
+	for (unsigned i = 0; i < newTextures.size(); ++i) {
+		QString tname = textureBase + QString(std::to_string(i).c_str()) + "." + imageFormat;
+		mm.addTexture(tname.toStdString(), *newTextures[i]);
+	}
+	cb(100, "Done!");
+	QDir::setCurrent(wd.absolutePath());
+
 	return std::map<std::string, QVariant>();
+
+
 }
 
 FilterPlugin::FilterArity FilterTextureDefragPlugin::filterArity(const QAction * filter ) const
 {
 	switch(ID(filter)) {
 		case FP_TEXTURE_DEFRAG: return FilterPlugin::SINGLE_MESH;
-		case FP_SIMPLE_TEXTURE_DEFRAG: return FilterPlugin::SINGLE_MESH;
+		case FP_SMALL_ISLANDS_REMOVER: return FilterPlugin::SINGLE_MESH;
 		default: wrongActionCalled(filter);
 	}
 

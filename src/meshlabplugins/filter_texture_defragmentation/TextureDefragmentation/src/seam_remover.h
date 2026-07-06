@@ -36,10 +36,47 @@
 
 #include "seams.h"
 #include "intersection.h"
+#include "filter_texture_defragmentation.h"
 
 typedef std::unordered_map<Mesh::VertexPointer, double> OffsetMap;
 
+/*!
+ * Container holding all user-defined parameters of a filter.
+ *
+ * Depending on the filter's type, the user defines some
+ * parameters, while others remain to their default values.
+ *
+ * The common parameter is filterType that specifies the
+ * variation of Texture Defragmentation employed.
+ *
+ * More specifically:
+ *
+ * FP_TEXTURE_DEFRAG uses:
+ *   - matchingThreshold
+ *   - offsetFactor
+ *   - boundaryTolerance
+ *   - distortionTolerance
+ *   - globalDistortionThreshold
+ *   - reductionFactor
+ *   - reduce
+ *   - timelimit
+ *   - visitComponents
+ *   - expb
+ *   - UVBorderLengthReduction
+ *   - ignoreOnReject
+ *
+ * FP_SMALL_ISLANDS_REMOVER
+ *  - minAreaThreshold
+ *  - timelimit
+ *
+ * When creating an AlgoParameters instance be sure to
+ * retrieve from the dialog box only the parameters
+ * associated to the current filter's type, the other
+ * leave them with their default values.
+ */
 struct AlgoParameters {
+    int filterType                   = 0;
+
     double matchingThreshold         = 2.0;
     double offsetFactor              = 5.0;
     double boundaryTolerance         = 0.2;
@@ -52,6 +89,8 @@ struct AlgoParameters {
     double expb                      = 1.0;
     double UVBorderLengthReduction   = 0.0;
     bool   ignoreOnReject            = false;
+    
+    double minAreaThreshold          = 0.0;
 };
 
 struct SeamData {
@@ -116,6 +155,15 @@ enum CheckStatus {
     _END
 };
 
+/*!
+ * Specifies the type of merge operation.
+ *
+ * NOT_SMALL_ISLAND is a special value exclusive
+ * to the filter FP_SMALL_ISLANDS_REMOVER. It denotes
+ * charts whose UV area greater or equal than the
+ * provided threshold, thus should not be merged
+ * (i.e., their cost is plus infinity).
+ */
 struct CostInfo {
     enum MatchingValue {
         FEASIBLE=0,
@@ -123,6 +171,7 @@ struct CostInfo {
         UNFEASIBLE_BOUNDARY,
         UNFEASIBLE_MATCHING,
         REJECTED,
+        NOT_SMALL_ISLAND,
         _END
     };
 
