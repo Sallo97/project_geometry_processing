@@ -51,7 +51,7 @@ typedef std::unordered_map<Mesh::VertexPointer, double> OffsetMap;
  *  FP_TEXTURE_DEFRAG uses: matchingThreshold, offsetFactor, boundaryTolerance,
  *  distortionTolerance, globalDistortionThreshold, UVBorderLengthReduction, timelimit.
  *
- * FP_SMALL_CHARTS_REMOVER uses: minAreaThreshold, timelimit.
+ * FP_SMALL_CHARTS_REMOVER uses: minAreaThreshold, timelimit, ignoreOnReject.
  * `reduce` is forced to true since small charts often have irregular boundaries
  * that are only feasible for shorter sub-seams.
  *
@@ -80,7 +80,6 @@ struct AlgoParameters {
     bool   visitComponents           = true;
     double expb                      = 1.0;
     bool   ignoreOnReject            = false;
-
 };
 
 struct SeamData {

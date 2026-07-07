@@ -210,20 +210,26 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 		                    "Time limit for the defragmentation process (zero means unlimited)."));
 		break;
 	case FP_SMALL_CHARTS_REMOVER:
-		parlst.addParam( RichInt(
-			"minAreaThreshold",
-			0,
-			"Minimum UV chart area (pixels)",
-			"Sets the area limit (in pixels) below which a UV chart is considered too small. "
+		parlst.addParam( RichDynamicFloat(
+			"minSideNorm",
+			0.0,
+			0.0,
+			1.0,
+			"Minimum UV chart side<br>(normalized)",
+			"Sets the normalized side length of the minimum threshold square area. "
 			       "All charts whose area is strictly below this threshold are merged with an adjacent "
-		           "chart sharing a seam. If set to zero, the threshold is ignored and the default "
-			       "Texture Defragmentation procedure is run instead."
-		));
+		           "chart sharing a seam. If set to zero, the limit is ignored and the default "
+			       "Texture Defragmentation procedure is run instead." ));
 		parlst.addParam(RichFloat(
-					"timelimit",
-					0.0,
-					"Time limit (seconds)",
-					"Time limit for the process (zero means unlimited)."));
+			"timelimit",
+			0.0,
+			"Time limit<br>(seconds)",
+			"Time limit for the process (zero means unlimited)." ));
+		parlst.addParam(RichBool(
+			"quickRun",
+			false,
+			"Quick execution",
+			"Speeds up the running time of the filter by never attempting again any rejected merge operation. <br> Although fast, it could lead to worst results." ));
 
 		break;
 	default:
@@ -407,9 +413,18 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 		break;
 
 		case FP_SMALL_CHARTS_REMOVER: {
-			ap.minAreaThreshold = par.getFloat("minAreaThreshold");
 			ap.timelimit = par.getFloat("timelimit");
 			ap.reduce = true;
+			ap.ignoreOnReject = par.getBool("quickRun");
+
+			// Convert the user-provided side of our square threshold
+			// area from normalized space into pixel space.
+			//
+			// Note that each texture has its own size, for sake of
+			// convenience we always reference the first one.
+			double minSideNorm = par.getFloat("minSideNorm");
+			ap.minAreaThreshold = minSideNorm * minSideNorm * textureObject->TextureArea(0);
+
 		}
 		break;
 
