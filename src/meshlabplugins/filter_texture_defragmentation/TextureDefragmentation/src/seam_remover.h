@@ -224,8 +224,64 @@ struct AlgoState {
 };
 
 void PrepareMesh(Mesh& m, int *vndup);
+
+/*!
+ * It constructs an AlgoStateHandle instance, containing all starting information
+ * regarding the Texture Defragmentation process.
+ *
+ * The function computes the following fields of the object:
+ * - `sm`: stores the seams present in the parametrization, grouped by their pair of charts.
+ * - `inputUVBorderLength`: stores the amount of boundary length of the initial UV parametrization.
+ * - `currentUVBorderLength`: will store the optimized amount of boundary length of the parametrization
+ *                            during the execution of Texture Defragmentation. At the start is set equal
+ *                            to `inputUVBorderLength`.
+ * - `ndisconnecting`: counts the total number of seams placed over two distinct charts.
+ * - `nself`: counts the total number of seams placed over only one chart (also called self-seams).
+ *
+ * @param graph: the UV-layout of the parametrization.
+ * @param algoParameters: the user-defined parameters of Texture Defragmentation.
+ * @return the constructed AlgoStateHandle instance.
+ */
 AlgoStateHandle InitializeState(GraphHandle graph, const AlgoParameters& algoParameters);
+
+/*!
+ * Implements a greedy best-fit search over the space of possible chart merges.
+ * As a side-effect it updates the UV coordinates of the input mesh with the
+ * computed optimized values.
+ *
+ * For each merge operation S we define a cost, declared as Appeal, computed as:
+ *          Appeal(S) = ( Benefit(S) / Cost(S) ) * SizeBonus(S) * Backoff(S)
+ * where:
+ * - Benefit(S): determines how convenient is our operation in respect to
+ *               to the overall number of seams decreased by it. This is
+ *               measured by considering the size of the boundaries of the
+ *               charts to be fused. We declare `L_A` and `L_N` as the
+ *               summation of the lengths of the linked edges' length in
+ *               both charts.
+ *
+ * - Cost(S): after rigidly aligning the two chart, if their linked vertices
+ *            are distant, their displacement will be big, leading to a
+ *            considerable distortion.
+ *
+ * - SizeBonus(S): gives priority to merge operations having charts with small area.
+ *
+ * - Backoff(S): penalizes merge operations that have failed multiple times.
+ *
+ * @param graph: the UV parametrization.
+ * @param state: contains all data regarding the current execution of Texture Defragmentation.
+ * @param params: the user-defined parameters of Texture Defragmentation.
+ */
 void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoParameters& params);
+
+/*!
+ * After all merge operations are done, this function prepares the final mesh
+ * for being returned to the user. All data added to the mesh to ease
+ * the optimization procedure is now removed.
+ *
+ * @param graph: the UV parametrization.
+ * @param vndup: a pointer that will contain the total number
+ *               of vertices **before** the cleaning procedure.
+ */
 void Finalize(GraphHandle graph, int *vndup);
 
 

@@ -44,15 +44,6 @@
 #include <QImage>
 
 
-/*!
- * Copies all faces and vertices from the face group `fg` into the mesh
- * instance `m`.
- *
- * Be aware that any prior data in `m` will be wiped out
- * before the process starts.
- * @param fg: the face group instance.
- * @param m: the mesh instance.
- */
 void CopyToMesh(FaceGroup& fg, Mesh& m)
 {
     // The mesh `m` will be re-constructed from zero, adding all faces coming
@@ -383,13 +374,6 @@ double MeshGraph::BorderUV() const
     return borderUV;
 }
 
-/*!
- *  Constructs a texture graph instance, determining the regions of the parametrization. For each region it computes its
- *  faces and the adjacent islands touching it in 3D space.
- * @param m: the mesh instance.
- * @param textureObject: the set of raw 2D image textures.
- * @return the computed graph instance.
- */
 GraphHandle ComputeGraph(Mesh &m, TextureObjectHandle textureObject)
 {
     // Identify for each face of the mesh its associated UV island.
@@ -453,10 +437,6 @@ GraphHandle ComputeGraph(Mesh &m, TextureObjectHandle textureObject)
     return graph;
 }
 
-/*!
- * Given a UV layout, provided as a graph, all vertices on a seam are duplicated, such that each chart has its own vertex.
- * @param graph : the UV layout.
- */
 void DisconnectCharts (GraphHandle graph) {
 
     // Defines a pair vertex id and associated region.

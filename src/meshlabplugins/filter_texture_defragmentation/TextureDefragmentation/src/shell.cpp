@@ -35,17 +35,6 @@
 
 static bool Build(Mesh& shell, FaceGroup& fg);
 
-/*!
- * Computes for each face in the merged chart their target UV shape.
- * The targets are stored in the shell mesh and will be used by the
- * ARAP optimizer.
- *
- * @param shell
- * @param fg
- * @param downsamplingFactor
- *
- * @return if the computed shell mesh is a single connected component or not.
- */
 bool BuildShellWithTargetsFromUV(Mesh& shell, FaceGroup& fg, double downsamplingFactor)
 {
 
@@ -194,13 +183,6 @@ bool BuildShellWithTargetsFromUV(Mesh& shell, FaceGroup& fg, double downsampling
     return singleComponent;
 }
 
-/*!
- * Given a shell mesh, it updates it by filling all its inner holes through a
- * ear-cutting triangulation algorithm procedure. All added faces are marked
- * as `HOLE_FILLING`, to distinguish them from the original ones.
- *
- * @param shell: the mesh instance.
- */
 void CloseHoles3D(Mesh& shell)
 {
     Timer t;
@@ -315,14 +297,6 @@ void CloseHoles3D(Mesh& shell)
     tri::UpdateTopology<Mesh>::VertexFace(shell);
 }
 
-/*!
- * Updates a shell mesh, repositioning all its 3D vertex coordinates according
- * to their UV parametrization positions. Note that, since each parametrization
- * point is bidimensional (only consider the x and y axis), while a tridimensional
- * point has the extra z-axis, we always set this last one to zero.
- *
- * @param shell: the shell mesh instance.
- */
 void SyncShellWithUV(Mesh& shell)
 {
     for (auto& v : shell.vert) {

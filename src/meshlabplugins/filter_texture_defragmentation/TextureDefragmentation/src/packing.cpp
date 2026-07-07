@@ -33,17 +33,6 @@
 
 typedef vcg::RasterizedOutline2Packer<float, QtOutline2Rasterizer> RasterizationBasedPacker;
 
-/*!
- * Applies a rasterization-based bin packing strategy over the provided collection of charts,
- * trying to compute a best-fit placement. As a side effect, it updates `texszVec` with the
- * dimensions of the new output textures, discarding any previous value.
- *
- * @param charts: the list of charts to pack.
- * @param textureObject: holds the current input textures holding the charts.
- * @param texszVec: keeps for each input texture their width and height.
- *
- * @return the actual number of charts packed.
- */
 int Pack(const std::vector<ChartHandle>& charts, TextureObjectHandle textureObject, std::vector<TextureSize>& texszVec)
 {
     // Pack the atlas

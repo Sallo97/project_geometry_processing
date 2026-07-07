@@ -133,11 +133,6 @@ bool SaveMesh(const char *fileName, Mesh& m, const std::vector<std::shared_ptr<Q
     return true;
 }
 
-/*!
- * Given a mesh, converts its normalized texture coordinates to the pixel space of the corresponding textures provided.
- * @param m : the mesh instance
- * @param textureObject : the array of textures providing the reference dimensions.
- */
 void ScaleTextureCoordinatesToImage(Mesh& m, TextureObjectHandle textureObject)
 {
     for (auto& f : m.face) {
@@ -199,11 +194,6 @@ static inline bool vCmp(const Mesh& mdst, const MeshVertex& v1, const MeshVertex
     return v1.T() == v2.T();
 }
 
-/*!
- * Given a mesh, it duplicates the vertices on the seam, such that each side as its own distinct copy.
- * Finally, the mesh FaceFace and VertexFace topologies are update to take the doubling into account.
- * @param m: the mesh instance.
- */
 void CutAlongSeams(Mesh& m)
 {
     tri::AttributeSeam::SplitVertex(m, vExt, vCmp);
