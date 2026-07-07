@@ -52,7 +52,7 @@ FilterTextureDefragPlugin::FilterTextureDefragPlugin()
 {
 	typeList = {
 	    FP_TEXTURE_DEFRAG,
-		FP_SMALL_ISLANDS_REMOVER,
+		FP_SMALL_CHARTS_REMOVER,
 	};
 
 	for(ActionIDType tt: types())
@@ -72,8 +72,8 @@ QString FilterTextureDefragPlugin::filterName(ActionIDType filterId) const
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("Texture Map Defragmentation");
-	case FP_SMALL_ISLANDS_REMOVER:
-		return QString("Texture Small Island Merger");
+	case FP_SMALL_CHARTS_REMOVER:
+		return QString("Small UV Charts Remover");
 	default:
 		assert(0);
 	}
@@ -85,8 +85,8 @@ QString FilterTextureDefragPlugin::pythonFilterName(ActionIDType filterId) const
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("apply_texmap_defragmentation");
-	case FP_SMALL_ISLANDS_REMOVER:
-		return QString("apply_simple_texmap_defragmentation");
+	case FP_SMALL_CHARTS_REMOVER:
+		return QString("apply_small_uv_charts_remover");
 	default:
 		assert(0);
 	}
@@ -101,12 +101,12 @@ QString FilterTextureDefragPlugin::filterInfo(ActionIDType filterId) const
 		               The used algorithm is: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 		               <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
 		               Eurographics 2021");
-	case FP_SMALL_ISLANDS_REMOVER:
-		return QString("Given a textured mesh, it merges all texture islands whose size is smaller than a specified treshold. \
-						   Its implementation is based on the filter \"Texture Map Defragmentation\", which itself is \
-						   based upon the algorithm: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
+	case FP_SMALL_CHARTS_REMOVER:
+		return QString("Attempts to remove all atlas charts below a given threshold, by merging them with \
+						   neighbouring charts that share a common seam. \
+						   <br>Based on: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 						   <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
-		                   Eurographics 2021");
+						   Eurographics 2021");
 	default: assert(0);
 	}
 	return {"Unknown Filter"};
@@ -116,7 +116,7 @@ int FilterTextureDefragPlugin::getPreConditions(const QAction *a) const
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD;
-		case FP_SMALL_ISLANDS_REMOVER : return MeshModel::MM_WEDGTEXCOORD;
+		case FP_SMALL_CHARTS_REMOVER : return MeshModel::MM_WEDGTEXCOORD;
 		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
@@ -126,7 +126,7 @@ int FilterTextureDefragPlugin::getRequirements(const QAction *a)
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG : return MeshModel::MM_FACEFACETOPO;
-		case FP_SMALL_ISLANDS_REMOVER : return MeshModel::MM_FACEFACETOPO;
+		case FP_SMALL_CHARTS_REMOVER : return MeshModel::MM_FACEFACETOPO;
 		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
@@ -136,7 +136,7 @@ bool FilterTextureDefragPlugin::requiresGLContext(const QAction* a) const
 {
 	switch (ID(a)) {
 	case FP_TEXTURE_DEFRAG: return true;
-	case FP_SMALL_ISLANDS_REMOVER: return true;
+	case FP_SMALL_CHARTS_REMOVER: return true;
 	default: assert(0); return false;
 	}
 }
@@ -146,7 +146,7 @@ int FilterTextureDefragPlugin::postCondition(const QAction *a) const
 	switch (ID(a)) {
 	case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD |
 									MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
-	case FP_SMALL_ISLANDS_REMOVER: return MeshModel::MM_WEDGTEXCOORD |
+	case FP_SMALL_CHARTS_REMOVER: return MeshModel::MM_WEDGTEXCOORD |
 										  MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
 	default: assert(0);
 	}
@@ -157,7 +157,7 @@ FilterTextureDefragPlugin::FilterClass FilterTextureDefragPlugin::getClass(const
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG:  return FilterPlugin::Texture;
-		case FP_SMALL_ISLANDS_REMOVER: return FilterPlugin::Texture;
+		case FP_SMALL_CHARTS_REMOVER: return FilterPlugin::Texture;
 		default: assert(0);
 	}
 	return FilterPlugin::Generic;
@@ -209,18 +209,21 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 		                    "Time limit (seconds)",
 		                    "Time limit for the defragmentation process (zero means unlimited)."));
 		break;
-	case FP_SMALL_ISLANDS_REMOVER:
+	case FP_SMALL_CHARTS_REMOVER:
 		parlst.addParam( RichInt(
 			"minAreaThreshold",
 			0,
-			"The minimum size for islands to remain untouched",
-			"All UV charts whose area is strictly minor that it will be merged; otherwise they are untouched. When set to zero is ignored."
+			"Minimum UV chart area (pixels)",
+			"Sets the area limit (in pixels) below which a UV chart is considered too small. "
+			       "All charts whose area is strictly below this threshold are merged with an adjacent "
+		           "chart sharing a seam. If set to zero, the threshold is ignored and the default "
+			       "Texture Defragmentation procedure is run instead."
 		));
 		parlst.addParam(RichFloat(
 					"timelimit",
 					0.0,
 					"Time limit (seconds)",
-					"Time limit for the defragmentation process (zero means unlimited)."));
+					"Time limit for the process (zero means unlimited)."));
 
 		break;
 	default:
@@ -238,14 +241,10 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
         CallBackPos *cb)
 {
 	if (ID(filter) != FP_TEXTURE_DEFRAG &&
-		ID(filter) != FP_SMALL_ISLANDS_REMOVER) {
+		ID(filter) != FP_SMALL_CHARTS_REMOVER) {
 		wrongActionCalled(filter);
 	}
 
-	// ==================== COMMON INITIALIZATION PROCEDURE ====================
-	// All variations of Texture Defragmentation share the same initialization code.
-
-	// Common variables that are declared here, but will be used further in.
 	std::vector<std::shared_ptr<QImage>> newTextures;
 	std::map<ChartHandle, int> anchorMap;
 
@@ -391,6 +390,8 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	// Retrieve all user-specified parameters from the MeshLab's Texture Defragmentation
 	// dialog window and pack them into the AlgoParameters instance `ap`. This object is
 	// just a collection of values.
+	//
+	// The fields being retrieved depend on the current variant of Texture Defragmentation.
 	AlgoParameters ap;
 	ap.filterType = ID(filter);
 	switch (ID(filter)) {
@@ -405,9 +406,10 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 		}
 		break;
 
-		case FP_SMALL_ISLANDS_REMOVER: {
+		case FP_SMALL_CHARTS_REMOVER: {
 			ap.minAreaThreshold = par.getFloat("minAreaThreshold");
 			ap.timelimit = par.getFloat("timelimit");
+			ap.reduce = true;
 		}
 		break;
 
@@ -453,7 +455,6 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 			anchorMap[chart] = anchor;
 		}
 	}
-	// ==================== COMMON TERMINATION PROCEDURE ====================
 
 	cb(70, "Packing atlas...");
 
@@ -550,7 +551,7 @@ FilterPlugin::FilterArity FilterTextureDefragPlugin::filterArity(const QAction *
 {
 	switch(ID(filter)) {
 		case FP_TEXTURE_DEFRAG: return FilterPlugin::SINGLE_MESH;
-		case FP_SMALL_ISLANDS_REMOVER: return FilterPlugin::SINGLE_MESH;
+		case FP_SMALL_CHARTS_REMOVER: return FilterPlugin::SINGLE_MESH;
 		default: wrongActionCalled(filter);
 	}
 

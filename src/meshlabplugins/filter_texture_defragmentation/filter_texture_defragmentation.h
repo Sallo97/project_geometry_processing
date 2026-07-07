@@ -44,7 +44,7 @@ class FilterTextureDefragPlugin : public QObject, public FilterPlugin
 
 	enum {
 		FP_TEXTURE_DEFRAG,
-		FP_SMALL_ISLANDS_REMOVER,
+		FP_SMALL_CHARTS_REMOVER,
 	};
 
 	FilterTextureDefragPlugin();

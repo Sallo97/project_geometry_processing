@@ -896,34 +896,29 @@ static CostInfo ComputeCost (
     ChartHandle a = charts.first;
     ChartHandle b = charts.second;
 
+
     // ============ INVALIDATING MERGE OPERATION ===========
-    // Here we specify for each filter when a merge operation should be excluded by the greedy procedure (i.e., its
-    // cost should be set to plus infinity).
+    // We check if the merge operation should be skipped, assigning to it an infinite cost.
+    // Depending on the variation of Texture Defragmentation being executed, the condition
+    // can change. The motivation is reflected in the CostInfo status.
     //
-    // Across all filters if either chart has zero area in either UV or 3D space, the seam is immediately marked as
-    // having infinite cost with a `ZERO_AREA` status, telling the algorithm that there is no meaningful merge to
-    // compute.
+    // Universal (all variants), if one of the charts has zero area in UV or 3D space, the
+    // merge is meaningless and immediately rejected with CostInfo::ZERO_AREA.
     //
-    // FP_SMALL_ISLANDS_REMOVER: both charts employed by the merge operation have UV area >= minAreaThreshold.
-    bool invalidCond = a->AreaUV() == 0 || b->AreaUV() == 0 ||
-                            a->Area3D() == 0 || b->Area3D() == 0;
-    switch (params.filterType) {
-
-        case FilterTextureDefragPlugin::FP_SMALL_ISLANDS_REMOVER: {
-            bool smallIslandCond = params.minAreaThreshold > 0 &&
-                                    a->AreaUV() >= params.minAreaThreshold &&
-                                    b->AreaUV() >= params.minAreaThreshold;
-            invalidCond =  invalidCond || smallIslandCond;
-        }
-            break;
-
-        case FilterTextureDefragPlugin::FP_TEXTURE_DEFRAG:
-            break;
-
-        default: break;
-    }
-    if (invalidCond) {
+    // FP_SMALL_CHART_REMOVER: if both charts have UV area >= minAreaThreshold, neither
+    // qualify as a small chart and the merge is rejected with CostInfo::Over_UV_AREA.
+    // The check is skipped when minAreaThreshold <= 0 (i.e., no area restriction).
+    const bool zeroArea = a->AreaUV() == 0 || b->AreaUV() == 0 ||
+                          a->Area3D() == 0 || b->Area3D() == 0;
+    if (zeroArea) {
         return { Infinity(), {}, CostInfo::ZERO_AREA };
+    }
+    const bool smallIslandCond =  params.filterType == FilterTextureDefragPlugin::FP_SMALL_CHARTS_REMOVER  &&
+                                  params.minAreaThreshold > 0                                              &&
+                                  a->AreaUV() >= params.minAreaThreshold                                   &&
+                                  b->AreaUV() >= params.minAreaThreshold;
+    if (smallIslandCond) {
+        return { Infinity(), {}, CostInfo::OVER_UV_AREA };
     }
 
     // We construct two parallel arrays, each containing the UV positions of the seam vertices as seen from the two

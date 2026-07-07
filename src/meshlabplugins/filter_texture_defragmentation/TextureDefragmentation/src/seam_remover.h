@@ -41,56 +41,46 @@
 typedef std::unordered_map<Mesh::VertexPointer, double> OffsetMap;
 
 /*!
- * Container holding all user-defined parameters of a filter.
+ * Container holding all user-specified parameters for the Texture Defragmentation
+ * algorithm and its variants. Depending on the variant executed, the user defines
+ * only some parameters, while others usually remain to their default value.
  *
- * Depending on the filter's type, the user defines some
- * parameters, while others remain to their default values.
+ * `filterType` is a special parameter (never defined by a user) identifying the
+ * current variant of Texture Defragmentation being run.
  *
- * The common parameter is filterType that specifies the
- * variation of Texture Defragmentation employed.
+ *  FP_TEXTURE_DEFRAG uses: matchingThreshold, offsetFactor, boundaryTolerance,
+ *  distortionTolerance, globalDistortionThreshold, UVBorderLengthReduction, timelimit.
  *
- * More specifically:
+ * FP_SMALL_CHARTS_REMOVER uses: minAreaThreshold, timelimit.
+ * `reduce` is forced to true since small charts often have irregular boundaries
+ * that are only feasible for shorter sub-seams.
  *
- * FP_TEXTURE_DEFRAG uses:
- *   - matchingThreshold
- *   - offsetFactor
- *   - boundaryTolerance
- *   - distortionTolerance
- *   - globalDistortionThreshold
- *   - reductionFactor
- *   - reduce
- *   - timelimit
- *   - visitComponents
- *   - expb
- *   - UVBorderLengthReduction
- *   - ignoreOnReject
- *
- * FP_SMALL_ISLANDS_REMOVER
- *  - minAreaThreshold
- *  - timelimit
- *
- * When creating an AlgoParameters instance be sure to
- * retrieve from the dialog box only the parameters
- * associated to the current filter's type, the other
- * leave them with their default values.
  */
 struct AlgoParameters {
+    // `filterType` is always set by the program, never by the user
     int filterType                   = 0;
 
+    // === FP_TEXTURE_DEFRAG parameters ===
     double matchingThreshold         = 2.0;
     double offsetFactor              = 5.0;
     double boundaryTolerance         = 0.2;
     double distortionTolerance       = 0.5;
     double globalDistortionThreshold = 0.025;
+    double UVBorderLengthReduction   = 0.0;
+
+    // === FP_SMALL_CHARTS_REMOVER parameters ===
+    double minAreaThreshold          = 0.0;
+
+    // === SHARED PARAMETERS ===
+    double timelimit                 = 0;
+
+    // === INTERNAL PARAMETERS (not exposed to the user) ===
     double reductionFactor           = 0.8;
     bool   reduce                    = false;
-    double timelimit                 = 0;
     bool   visitComponents           = true;
     double expb                      = 1.0;
-    double UVBorderLengthReduction   = 0.0;
     bool   ignoreOnReject            = false;
-    
-    double minAreaThreshold          = 0.0;
+
 };
 
 struct SeamData {
@@ -156,22 +146,43 @@ enum CheckStatus {
 };
 
 /*!
- * Specifies the type of merge operation.
+ * Describes the outcome of a merge operation as evaluated by ComputeCost.
  *
- * NOT_SMALL_ISLAND is a special value exclusive
- * to the filter FP_SMALL_ISLANDS_REMOVER. It denotes
- * charts whose UV area greater or equal than the
- * provided threshold, thus should not be merged
- * (i.e., their cost is plus infinity).
+ * Only FEASIBLE produces a finite cost and allows the merge to proceed.
+ * All other entries explain why the operation was assigned infinite cost
+ * and excluded from the greedy procedure.
+ *
+ * ZERO_AREA applies across all variants: if either chart has zero area
+ * in UV or 3D space, no meaningful merge can be computed.
+ *
+ * Depending on the variant there are separate cases:
+ *
+ * FP_TEXTURE_DEFRAG uses:
+ *
+ *   - UNFEASIBLE_BOUNDARY: the seam covers too small a fraction of either
+ *     chart's UV boundary, meaning the charts barely touch and merging them
+ *     would produce poorly shaped charts.
+ *
+ *   - UNFEASIBLE_MATCHING: the UV boundaries of the two charts are too
+ *     geometrically incompatible to align under a rigid transformation within
+ *     the allowed error threshold. If `reduce` is active, ReduceSeam attempts
+ *     to find a shorter sub-seam that resolves this before giving up.
+ *
+ *   - REJECTED: the merge was attempted but reverted due to post-optimization
+ *     failures (overlap or distortion). Set by the main loop, not ComputeCost.
+ *
+ * FP_SMALL_CHARTS_REMOVER uses:
+ *   - OVER_UV_AREA: both charts have UV area >= minAreaThreshold, meaning
+ *     neither qualifies as a small chart, thus they should not be merged
  */
 struct CostInfo {
     enum MatchingValue {
-        FEASIBLE=0,
+        FEASIBLE = 0,
         ZERO_AREA,
         UNFEASIBLE_BOUNDARY,
         UNFEASIBLE_MATCHING,
         REJECTED,
-        NOT_SMALL_ISLAND,
+        OVER_UV_AREA,
         _END
     };
 
