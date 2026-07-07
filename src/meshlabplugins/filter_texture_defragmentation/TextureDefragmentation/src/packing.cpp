@@ -33,7 +33,10 @@
 
 typedef vcg::RasterizedOutline2Packer<float, QtOutline2Rasterizer> RasterizationBasedPacker;
 
-int Pack(const std::vector<ChartHandle>& charts, TextureObjectHandle textureObject, std::vector<TextureSize>& texszVec)
+int Pack (
+    const std::vector<ChartHandle>& charts,
+    TextureObjectHandle textureObject,
+    std::vector<TextureSize>& texszVec)
 {
     // Pack the atlas
 
@@ -57,7 +60,7 @@ int Pack(const std::vector<ChartHandle>& charts, TextureObjectHandle textureObje
     // pixel, scaled by the normalized width and height of its corresponding
     // input textures.
     //
-    // The original normalized dimensions are retrieved by the function
+    // The input normalized dimensions are retrieved by the function
     // `ComputeRelativeSizes`.
     int packingSize = 4096;
     std::vector<std::pair<double,double>> trs = textureObject->ComputeRelativeSizes();
@@ -139,6 +142,9 @@ int Pack(const std::vector<ChartHandle>& charts, TextureObjectHandle textureObje
         // If all containers we have created are filled to the brim, we construct
         // another one (i.e., we increment the total number of output square
         // textures by one). The size of the new entry will be `packingSize x packingSize`.
+        //
+        // Note that, since each new entry is by default a square, we do not need to enforce
+        // a different case if squareTextures is set to true.
         if (nc >= containerVec.size())
             containerVec.push_back(vcg::Point2i(packingSize, packingSize));
 
