@@ -52,7 +52,7 @@ FilterTexturePlugin::FilterTexturePlugin()
 		FP_BASIC_TRIANGLE_MAPPING,
 		FP_SET_TEXTURE,
 		FP_RENAME_TEXTURE,
-		FP_MERGE_TEXTURES,
+		FP_PACK_TEXTURES,
 		FP_PLANAR_MAPPING,
 		FP_COLOR_TO_TEXTURE,
 		FP_TRANSFER_TO_TEXTURE,
@@ -79,7 +79,7 @@ QString FilterTexturePlugin::filterName(ActionIDType filterId) const
 	case FP_PLANAR_MAPPING : return QString("Parametrization: Flat Plane");
 	case FP_SET_TEXTURE : return QString("Set Texture");
 	case FP_RENAME_TEXTURE : return QString("Rename Texture");
-	case FP_MERGE_TEXTURES : return QString("Merge Textures");
+	case FP_PACK_TEXTURES : return QString("Pack Textures");
 	case FP_COLOR_TO_TEXTURE : return QString("Transfer: Vertex Color to Texture");
 	case FP_TRANSFER_TO_TEXTURE : return QString("Transfer: Vertex Attributes to Texture (1 or 2 meshes)");
 	case FP_TEX_TO_VCOLOR_TRANSFER : return QString("Transfer: Texture to Vertex Color (1 or 2 meshes)");
@@ -98,7 +98,7 @@ QString FilterTexturePlugin::pythonFilterName(ActionIDType f) const
 	case FP_PLANAR_MAPPING : return QString("compute_texcoord_parametrization_flat_plane_per_wedge");
 	case FP_SET_TEXTURE : return QString("set_texture_per_mesh");
 	case FP_RENAME_TEXTURE : return QString("rename_texture_per_mesh");
-	case FP_MERGE_TEXTURES : return QString("merge_texture_per_mesh");
+	case FP_PACK_TEXTURES : return QString("pack_texture_per_mesh");
 	case FP_COLOR_TO_TEXTURE : return QString("compute_texmap_from_color");
 	case FP_TRANSFER_TO_TEXTURE : return QString("transfer_attributes_to_texture_per_vertex");
 	case FP_TEX_TO_VCOLOR_TRANSFER : return QString("transfer_texture_to_color_per_vertex");
@@ -121,7 +121,7 @@ QString FilterTexturePlugin::filterInfo(ActionIDType filterId) const
 	case FP_PLANAR_MAPPING : return QString("Builds a trivial flat-plane parametrization.");
 	case FP_SET_TEXTURE : return QString("Set a texture associated with current mesh parametrization.<br>" "If the texture provided exists, then it will be simply associated to the current mesh; else the filter will fail with no further actions. If specified it can create and associate a dummy texture with a specified grid or checkboard pattern.");
 	case FP_RENAME_TEXTURE : return QString("Changes the name of an existing texture to one provided by the user, while keeping the same content.<br>" "The new name must be different than any of the texture names already present, else the filter will do nothing.<br>" "It is useful for changing a specific referenced texture file.");
-	case FP_MERGE_TEXTURES : return QString("Returns a new mesh, having as textures a requested amount obtained by merging the original image. The number of final textures must be greater or equal to the ones in the source texture, else the filter will do nothing.");
+	case FP_PACK_TEXTURES : return QString("Returns a new mesh, having as textures a requested amount obtained by merging the original image. The number of final textures must be greater or equal to the ones in the source texture, else the filter will do nothing.");
 	case FP_COLOR_TO_TEXTURE : return QString("Fills the specified texture using per-vertex color data of the mesh.");
 	case FP_TRANSFER_TO_TEXTURE : return QString("Transfer texture color, vertex color or normal from one mesh the texture of another mesh. This may be useful to restore detail lost in simplification, or resample a texture in a different parametrization.");
 	case FP_TEX_TO_VCOLOR_TRANSFER : return QString("Generates Vertex Color values picking color from a texture (same mesh or another mesh).");
@@ -141,7 +141,7 @@ int FilterTexturePlugin::getPreConditions(const QAction *a) const
 	case FP_PLANAR_MAPPING : return MeshModel::MM_FACENUMBER;
 	case FP_SET_TEXTURE : return MeshModel::MM_WEDGTEXCOORD;
 	case FP_RENAME_TEXTURE : return MeshModel::MM_NONE;
-	case FP_MERGE_TEXTURES : return MeshModel::MM_NONE;
+	case FP_PACK_TEXTURES : return MeshModel::MM_NONE;
 	case FP_COLOR_TO_TEXTURE : return MeshModel::MM_VERTCOLOR | MeshModel::MM_WEDGTEXCOORD;
 	case FP_TRANSFER_TO_TEXTURE : return MeshModel::MM_NONE;
 	case FP_TEX_TO_VCOLOR_TRANSFER : return MeshModel::MM_NONE;
@@ -161,7 +161,7 @@ int FilterTexturePlugin::getRequirements(const QAction *a)
 	case FP_PLANAR_MAPPING :
 	case FP_SET_TEXTURE : return MeshModel::MM_NONE;
 	case FP_RENAME_TEXTURE: return MeshModel::MM_NONE;
-	case FP_MERGE_TEXTURES : return MeshModel::MM_NONE;
+	case FP_PACK_TEXTURES : return MeshModel::MM_NONE;
 	case FP_COLOR_TO_TEXTURE : return MeshModel::MM_FACEFACETOPO;
 	case FP_TRANSFER_TO_TEXTURE : return MeshModel::MM_NONE;
 	case FP_TEX_TO_VCOLOR_TRANSFER : return MeshModel::MM_NONE;
@@ -181,7 +181,7 @@ int FilterTexturePlugin::postCondition(const QAction *a) const
 	case FP_BASIC_TRIANGLE_MAPPING : return MeshModel::MM_WEDGTEXCOORD;
 	case FP_SET_TEXTURE : return MeshModel::MM_NONE;
 	case FP_RENAME_TEXTURE : return MeshModel::MM_NONE;
-	case FP_MERGE_TEXTURES : return MeshModel::MM_NONE;
+	case FP_PACK_TEXTURES : return MeshModel::MM_NONE;
 	case FP_COLOR_TO_TEXTURE : return MeshModel::MM_NONE;
 	case FP_TRANSFER_TO_TEXTURE : return MeshModel::MM_NONE;
 	case FP_TEX_TO_VCOLOR_TRANSFER: return MeshModel::MM_VERTCOLOR;
@@ -204,7 +204,7 @@ FilterTexturePlugin::FilterClass FilterTexturePlugin::getClass(const QAction *a)
 	case FP_PLANAR_MAPPING :
 	case FP_SET_TEXTURE :
 	case FP_RENAME_TEXTURE :
-	case FP_MERGE_TEXTURES : 
+	case FP_PACK_TEXTURES :
 	case FP_COLOR_TO_TEXTURE :
 	case FP_TRANSFER_TO_TEXTURE : return FilterPlugin::Texture;
 	case FP_TEX_TO_VCOLOR_TRANSFER : return FilterClass(FilterPlugin::VertexColoring + FilterPlugin::Texture);
@@ -279,8 +279,8 @@ RichParameterList FilterTexturePlugin::initParameterList(const QAction *action, 
 		parlst.addParam(RichEnum("oldTextName", 0, textureNames, "Old texture name", "The name that will be replaced."));
 		parlst.addParam(RichString("newTextName", "", "New texture name", "The new name to give to the existing texture."));
 		break;
-	case FP_MERGE_TEXTURES :
-		parlst.addParam(RichInt("containerNum", 1, "Target number of textures", "The number of resulting textures packing the original ones."));
+	case FP_PACK_TEXTURES :
+		parlst.addParam(RichInt("containerNum", 1, "Target textures", "The number of resulting textures packing the original ones."));
 		break;
 	case FP_COLOR_TO_TEXTURE : {
 		parlst.addParam(RichString("textName", "", "Texture name", "The name of the texture to be created"));
@@ -763,7 +763,7 @@ std::map<std::string, QVariant> FilterTexturePlugin::applyFilter(
 	}
 		break;
 
-	case FP_MERGE_TEXTURES: {
+	case FP_PACK_TEXTURES: {
 		// We copy the input mesh in a new layer in which we will apply the filter's texture condensation.
 		//
 		// When retrieving the user-provided parameters, be sure that the number of source textures is
