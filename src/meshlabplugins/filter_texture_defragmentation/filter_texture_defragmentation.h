@@ -28,6 +28,7 @@
 #include <QObject>
 #include <QTime>
 
+#include "meshlabplugins/filter_texture/texture_packer.hpp"
 #include <common/plugins/interfaces/filter_plugin.h>
 #include <vcg/complex/append.h>
 #include <vcg/complex/algorithms/attribute_seam.h>

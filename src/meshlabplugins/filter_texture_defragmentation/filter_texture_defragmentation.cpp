@@ -35,7 +35,6 @@
 
 #include <common/GLExtensionsManager.h>
 
-#include "meshlabplugins/filter_texture/texture_packer.h"
 #include "TextureDefragmentation/src/mesh.h"
 #include "TextureDefragmentation/src/texture_object.h"
 #include "TextureDefragmentation/src/mesh_attribute.h"
@@ -74,7 +73,7 @@ QString FilterTextureDefragPlugin::filterName(ActionIDType filterId) const
 	case FP_TEXTURE_DEFRAG:
 		return QString("Texture Map Defragmentation");
 	case FP_SMALL_CHARTS_REMOVER:
-		return QString("Small UV Charts Remover");
+		return QString("Small UV Islands Remover");
 	default:
 		assert(0);
 	}
@@ -98,13 +97,13 @@ QString FilterTextureDefragPlugin::filterInfo(ActionIDType filterId) const
 {
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
-		return QString("Reduces the texture fragmentation by merging atlas charts. \
+		return QString("Reduces the texture fragmentation by merging texture islands. \
 		               The used algorithm is: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 		               <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
 		               Eurographics 2021");
 	case FP_SMALL_CHARTS_REMOVER:
-		return QString("Attempts to remove all atlas charts below a given threshold, by merging them with \
-						   neighbouring charts that share a common seam. \
+		return QString("Attempts to remove all texture islands below a given threshold, by merging them with \
+						   neighbors that share a common seam. \
 						   <br>Based on: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 						   <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
 						   Eurographics 2021");
@@ -216,10 +215,10 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 			0.0,
 			0.0,
 			1.0,
-			"Minimum UV chart<br>side (normalized)",
+			"Minimum UV island<br>side (normalized)",
 			"Sets the normalized side length of the minimum threshold square area. "
-			       "All charts whose area is strictly below this threshold are merged with an adjacent "
-		           "chart sharing a seam. If set to zero, the limit is ignored and the default "
+			       "All island whose area is strictly below this threshold are merged with an adjacent "
+		           "island sharing a seam. If set to zero, the limit is ignored and the default "
 			       "Texture Defragmentation procedure is run instead." ));
 		parlst.addParam(RichInt(
 		"targetTexCount",
@@ -367,7 +366,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	// that if the vertex is shared among more than two sheets, multiple calls
 	// are necessary. For this reason we wrap the function inside a loop.
 	//
-	// After removing any non-manifold vertex we compact the vertex data structure
+	// After removing any non-manifold vertex, we compact the vertex data structure
 	// of the input mesh.
 	while (tri::Clean<Mesh>::SplitNonManifoldVertex(defragMesh, 0))
 		;
@@ -561,17 +560,15 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	if (ap.filterType == FP_SMALL_CHARTS_REMOVER &&
 		ap.targetTexCount > 0					 &&
 		newTextures.size() > ap.targetTexCount) {
-		std::vector<std::reference_wrapper<const QImage>> convertedTexs;
+		std::vector<QImage> convertedTexs;
 		for (auto &t : newTextures) {
 			// TexturePacker works over reference_wrapper<const QImage>, while newTextures
 			// hold shared_ptr<QImage> entries. We need to convert them before giving them
 			// to the packer.
-			convertedTexs.push_back(std::ref(*t));
+			convertedTexs.push_back(*(t.get()));
 		}
 
-		TexturePacker packer(convertedTexs, ap.targetTexCount);
-		std::vector<QImage> packedTexs = packer.packTextures();
-		packer.updateTextureCoordinates(mm);
+		std::vector<QImage> packedTexs = TexturePacker::simplePacking(convertedTexs, ap.targetTexCount, mm);
 
 		// Replace the entries in newTextures with our new merged results
 		newTextures.clear();

@@ -17,6 +17,8 @@ set(SOURCES
     TextureDefragmentation/src/shell.cpp
     TextureDefragmentation/src/texture_object.cpp
 
+    ../filter_texture/texture_packer.cpp
+
     ${VCGDIR}/wrap/ply/plylib.cpp
     ${VCGDIR}/wrap/openfbx/src/ofbx.cpp
     ${VCGDIR}/wrap/openfbx/src/miniz.c
@@ -45,6 +47,8 @@ set(HEADERS
     TextureDefragmentation/src/arap.h
     TextureDefragmentation/src/shell.h
     TextureDefragmentation/src/texture_object.h
+
+    ../filter_texture/texture_packer.hpp
 )
 
 add_meshlab_plugin(filter_texture_defragmentation ${SOURCES} ${HEADERS})

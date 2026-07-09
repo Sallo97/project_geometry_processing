@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: BSL-1.0
 
 
-set(SOURCES filter_texture.cpp ${VCGDIR}/wrap/ply/plylib.cpp
+set(SOURCES filter_texture.cpp texture_packer.cpp ${VCGDIR}/wrap/ply/plylib.cpp
             ${VCGDIR}/wrap/qt/outline2_rasterizer.cpp)
 
-set(HEADERS rastering.h filter_texture.h pushpull.h
+set(HEADERS rastering.h filter_texture.h pushpull.h texture_packer.hpp
             ${VCGDIR}/vcg/complex/algorithms/parametrization/voronoi_atlas.h)
 
 add_meshlab_plugin(filter_texture ${SOURCES} ${HEADERS})

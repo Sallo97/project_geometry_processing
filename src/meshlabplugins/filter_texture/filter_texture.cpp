@@ -29,12 +29,13 @@
 #include "filter_texture.h"
 #include "pushpull.h"
 #include "rastering.h"
-#include "texture_packer.h"
+#include "texture_packer.hpp"
 #include <vcg/complex/algorithms/update/texture.h>
 #include<wrap/io_trimesh/export_ply.h>
 #include <vcg/complex/algorithms/parametrization/voronoi_atlas.h>
 #include <common/utilities/load_save.h>
 #include <QStandardPaths>
+#include <boost/foreach.hpp>
 
 using namespace vcg;
 
@@ -279,7 +280,7 @@ RichParameterList FilterTexturePlugin::initParameterList(const QAction *action, 
 		parlst.addParam(RichString("newTextName", "", "New texture name", "The new name to give to the existing texture."));
 		break;
 	case FP_MERGE_TEXTURES :
-		parlst.addParam(RichInt("numOfTextures", 1, "Number of resulting merged textures", "The number of resulting textures packing the original ones."));
+		parlst.addParam(RichInt("containerNum", 1, "Target number of textures", "The number of resulting textures packing the original ones."));
 		break;
 	case FP_COLOR_TO_TEXTURE : {
 		parlst.addParam(RichString("textName", "", "Texture name", "The name of the texture to be created"));
@@ -763,40 +764,48 @@ std::map<std::string, QVariant> FilterTexturePlugin::applyFilter(
 		break;
 
 	case FP_MERGE_TEXTURES: {
-		// Phase 1: loading user's parameters and retrieve source textures.
-		cb(0, "loading user's parameters...");
+		// We copy the input mesh in a new layer in which we will apply the filter's texture condensation.
+		//
+		// When retrieving the user-provided parameters, be sure that the number of source textures is
+		// strictly major than the number of requested container textures, otherwise exit immediately
+		// telling the user about it.
+		//
+		// The packing process is handled by the static function `TexturePacker::simplePacking`. Be aware
+		// that the method updates the UV coordinates of the provided input mesh to take into account its
+		// new output textures. The function will return the array of final QImages.
+		//
+		// Substitute the current textures of the mesh with the one returned by the function.
+		cb(0, "Initialization...");
 
-		int numOfTextures = par.getInt("numOfTextures");
-		if (m.getTextures().size() < numOfTextures) {
-			log ("The number of requested textures must be smaller than the current textures in the mesh.");
+		int containerNum  = par.getInt("containerNum");
+		if (m.getTextures().size() <= containerNum) {
+			log ("The number of requested textures (" +
+				std::to_string(containerNum) +
+				") must be smaller than the current textures in the mesh (" +
+				std::to_string(m.getTextures().size()) + "). Exiting...");
 			break;
 		}
-
-		typedef std::vector<std::reference_wrapper<const QImage>> SrcTextures;
-		typedef std::vector<QImage> DstTextures;
-		SrcTextures srcTextures;
-		for (auto &srcTexture : m.getTextures()) {
-			srcTextures.push_back(std::ref(srcTexture.second));
+		std::vector<QImage> srcTextures;
+		for (const auto &src : m.getTextures()) {
+			srcTextures.push_back(src.second);
 		}
 
-		// Phase 2: Pack textures into the destination textures
-		cb(30, "packing source textures...");
-		TexturePacker packer(srcTextures, numOfTextures);
-		DstTextures dstTextures = packer.packTextures();
+		MeshModel &outputMesh = *(md.addNewMesh(m.cm, "merged_" + m.label()));
+		outputMesh.clearTextures();
 
-		// Phase 4: Create a copy of the source mesh, having as textures the destination ones.
-		cb(60, "Creating the mesh...");
+		cb(50, "Packing source textures...");
+		std::vector<QImage> containerTextures = TexturePacker::simplePacking(srcTextures, containerNum, outputMesh);
 
-		MeshModel &destinationMesh = *(md.addNewMesh(m.cm, "merged_" + m.label()));
-		destinationMesh.clearTextures();
+		// Adding new textures
+		outputMesh.updateDataMask();
+		for (int containerID = 0; containerID < containerTextures.size(); containerID++) {
+			outputMesh.addTexture("container_" + std::to_string(containerID), containerTextures[containerID]);
 
-		for (size_t i = 0; i < dstTextures.size(); i++) {
-			std::string tName = "merged_" + std::to_string(i + 1);
-			destinationMesh.addTexture(tName, dstTextures[i]);
+			// ============ DEBUG TO REMOVE ===========
+			QImage container = containerTextures[containerID];
+			QString newName = QString("container_%1").arg(containerID);
+			container.save(newName, "PNG");
 		}
-
-		cb(80, "Updating texture mapping...");
-		packer.updateTextureCoordinates(destinationMesh);
 
 		cb(100, "Done!");
 	}
