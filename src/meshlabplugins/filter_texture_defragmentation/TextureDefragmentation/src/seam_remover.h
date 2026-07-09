@@ -52,7 +52,7 @@ typedef std::unordered_map<Mesh::VertexPointer, double> OffsetMap;
  *  distortionTolerance, globalDistortionThreshold, UVBorderLengthReduction, timelimit.
  *
  * FP_SMALL_CHARTS_REMOVER uses: minAreaThreshold, timelimit, ignoreOnReject,
- * targetTexCount.
+ * targetTexCount, distortionTolerance, globalDistortionThreshold.
  * `reduce` is forced to true since small charts often have irregular boundaries
  * that are only feasible for shorter sub-seams.
  *
@@ -65,8 +65,6 @@ struct AlgoParameters {
     double matchingThreshold         = 2.0;
     double offsetFactor              = 5.0;
     double boundaryTolerance         = 0.2;
-    double distortionTolerance       = 0.5;
-    double globalDistortionThreshold = 0.025;
     double UVBorderLengthReduction   = 0.0;
 
     // === FP_SMALL_CHARTS_REMOVER parameters ===
@@ -75,6 +73,9 @@ struct AlgoParameters {
 
     // === SHARED PARAMETERS ===
     double timelimit                 = 0;
+    double distortionTolerance       = 0.5;
+    double globalDistortionThreshold = 0.025;
+
 
     // === INTERNAL PARAMETERS (not exposed to the user) ===
     double reductionFactor           = 0.8;
