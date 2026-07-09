@@ -250,20 +250,14 @@ void TexturePacker::updateMeshUV() {
             // compared to 0.5.
             //
             // For this reason we enforce that all values are within 0.0 and 1.0.
-
-            // This method guarantees that V is correct, but U is in [0,0.9].
-            // The generated UV param is good to look at.
-            float floorU = face.WT(k).U();
-            float floorV = face.WT(k).V();
-            floorU = floorU - std::floor(floorU);
-            floorV = floorV - std::floor(floorV);
-
-            const float newU = ( ( floorU * srcSize.X() ) + containerOff.X() ) / containerSize.X();
+            const float wrappedU = face.WT(k).U() > 1.0f ? face.WT(k).U() - std::floor(face.WT(k).U()) : face.WT(k).U();
+            const float newU = ( ( wrappedU * srcSize.X() ) + containerOff.X() ) / containerSize.X();
             face.WT(k).U() =  newU;
 
             // The offset for V() needs to be converted to bottom-up (meshlab coordinate system).
+            const float wrappedV = face.WT(k).V() > 1.0f ? face.WT(k).V() - std::floor(face.WT(k).V()) : face.WT(k).V();
             const float vOffsetFromBottom = containerSize.Y() - containerOff.Y() - srcSize.Y();
-            const float newV = ( ( floorV * srcSize.Y() ) + vOffsetFromBottom ) / containerSize.Y();
+            const float newV = ( ( wrappedV * srcSize.Y() ) + vOffsetFromBottom ) / containerSize.Y();
             face.WT(k).V() = newV;
         }
     }
