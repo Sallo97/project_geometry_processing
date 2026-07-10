@@ -366,6 +366,11 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	CutAlongSeams(defragMesh);
 	GraphHandle graph = ComputeGraph(defragMesh, textureObject);
 
+	// Print number of islands before the merge operation.
+	unsigned long islandsBeforeDefrag = graph->charts.size();
+	log(GLLogStream::Levels::FILTER, "UV islands before defragmentation: " + std::to_string(islandsBeforeDefrag));
+
+
 	// Recall that a non-manifold vertex is one which is incident to at least two
 	// distinct sheets of faces. We resolve non-manifold vertices by duplicating
 	// them such that each sheet has its own copy. These new vertices are then
@@ -439,9 +444,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 			// Note that each texture has its own size; for the sake of convenience,
 			//  we always reference the first one.
 			double minSideNorm = par.getFloat("minSideNorm");
-
-			double pixelSpaceSide = ( minSideNorm * textureObject->TextureWidth(0) );
-			ap.minAreaThreshold = pixelSpaceSide * pixelSpaceSide;
+			ap.minAreaThreshold = minSideNorm == 0.0 ? graph->AreaUV() : minSideNorm * graph->AreaUV();
 
 			// The Distortion Mode selected by the user will determine the values
 			// the algorithm will use for `distortionTolerance` and `globalDistortionThreshold`,
@@ -453,14 +456,18 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 					ap.globalDistortionThreshold = 0.25;
 					break;
 				// Loose Mode
+				// We do not care about the local distortion and only focus at the global level.
 				case 1:
-					ap.distortionTolerance = 0.05;
-					ap.globalDistortionThreshold = 0.01;
+					ap.distortionTolerance = Infinity();
+					ap.globalDistortionThreshold = 0.5;
 					break;
 				// None Mode
+				// The thresholds are within [0,1], so putting Infinity() or 1.0 is the same.
+				// I kept Infinity() because it conveys better that we are disregarding the
+				// distortions completely.
 				case 2:
-					ap.distortionTolerance = 0.0;
-					ap.globalDistortionThreshold = 0.0;
+					ap.distortionTolerance = Infinity();
+					ap.globalDistortionThreshold = Infinity();
 					break;
 				default:
 					ap.distortionTolerance = 0.5;
@@ -493,6 +500,11 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	GreedyOptimization(graph, state, ap);
 	int vndupOut;
 	Finalize(graph, &vndupOut);
+
+	// Print number of islands merged.
+	unsigned long islandsAfterDefrag = graph->charts.size();
+	log(GLLogStream::Levels::FILTER, "UV islands after defragmentation: " + std::to_string(islandsAfterDefrag));
+	log(GLLogStream::Levels::FILTER, "UV islands removed: " + std::to_string(islandsBeforeDefrag - islandsAfterDefrag));
 
 	bool colorize = true;
 	if (colorize)

@@ -837,8 +837,8 @@ static CostInfo ComputeCost (
     // Universal (all variants), if one of the charts has zero area in UV or 3D space, the
     // merge is meaningless and immediately rejected with CostInfo::ZERO_AREA.
     //
-    // FP_SMALL_CHART_REMOVER: if both charts have UV area >= minAreaThreshold, neither
-    // qualify as a small chart and the merge is rejected with CostInfo::Over_UV_AREA.
+    // FP_SMALL_CHART_REMOVER: if both charts have UV area > minAreaThreshold, neither
+    // qualifies as a small chart, and the merge is rejected with CostInfo::Over_UV_AREA.
     // The check is skipped when minAreaThreshold <= 0 (i.e., no area restriction).
     const bool zeroArea = a->AreaUV() == 0 || b->AreaUV() == 0 ||
                           a->Area3D() == 0 || b->Area3D() == 0;
@@ -847,8 +847,8 @@ static CostInfo ComputeCost (
     }
     const bool smallIslandCond =  params.filterType == FilterTextureDefragPlugin::FP_SMALL_CHARTS_REMOVER  &&
                                   params.minAreaThreshold > 0                                              &&
-                                  a->AreaUV() >= params.minAreaThreshold                                   &&
-                                  b->AreaUV() >= params.minAreaThreshold;
+                                  a->AreaUV() > params.minAreaThreshold                                    &&
+                                  b->AreaUV() > params.minAreaThreshold;
     if (smallIslandCond) {
         return { Infinity(), {}, CostInfo::OVER_UV_AREA };
     }
