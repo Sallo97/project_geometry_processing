@@ -377,7 +377,7 @@ double MeshGraph::BorderUV() const
 GraphHandle ComputeGraph(Mesh &m, TextureObjectHandle textureObject)
 {
     // Identify for each face of the mesh its associated UV island.
-    // A face's chart is determined by its connected component (i.e., the closed subset of faces reachable through
+    // A face's island is determined by its connected component (i.e., the closed subset of faces reachable through
     // FACE-FACE adjacency). The region's identifiers are assigned in increasing order, starting from zero.
     //
     // Note that here we are using the current topology which has duplicated vertices at seams. Only in this way we
@@ -413,7 +413,7 @@ GraphHandle ComputeGraph(Mesh &m, TextureObjectHandle textureObject)
     // Then we check the adjacent faces sharing a common mesh's edge. If one of those belongs to a different region, we
     // find two adjacent graphs, and we connect their nodes through a graph edge.
     //
-    // Note that here we are using the original pre-split geometry, in which alla faces are connected to each
+    // Note that here we are using the original pre-split geometry, in which all faces are connected to each
     // other. Only by comparing separated region with the original topology we can identify cuts.
     GraphHandle graph = std::make_shared<MeshGraph>(m);
     graph->textureObject = textureObject;

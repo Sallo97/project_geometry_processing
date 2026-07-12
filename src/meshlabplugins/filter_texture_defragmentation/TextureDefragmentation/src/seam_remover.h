@@ -49,12 +49,17 @@ typedef std::unordered_map<Mesh::VertexPointer, double> OffsetMap;
  * current variant of Texture Defragmentation being run.
  *
  *  FP_TEXTURE_DEFRAG uses: matchingThreshold, offsetFactor, boundaryTolerance,
- *  distortionTolerance, globalDistortionThreshold, UVBorderLengthReduction, timelimit.
+ *  distortionTolerance, globalDistortionThreshold, UVBorderLengthReduction,
+ *  timelimit.
  *
  * FP_SMALL_CHARTS_REMOVER uses: minAreaThreshold, timelimit, ignoreOnReject,
- * targetTexCount, distortionTolerance, globalDistortionThreshold.
- * `reduce` is forced to true since small charts often have irregular boundaries
+ * targetTexCount, distortionTolerance, globalDistortionThreshold, boundaryTolerance,
+ * matchingThreshold, expb, UVBorderLengthReduction.
+ * `reduce` is forced to be true since small charts often have irregular boundaries
  * that are only feasible for shorter sub-seams.
+ * When the UNSAFE distortionMode is chosen, the internal parameter skipOverlapChecks
+ * is set to true. This parameter will avoid that any merge operation is rejected
+ * for the presence of overlaps and folds.
  *
  */
 struct AlgoParameters {
@@ -64,18 +69,17 @@ struct AlgoParameters {
     // === FP_TEXTURE_DEFRAG parameters ===
     double matchingThreshold         = 2.0;
     double offsetFactor              = 5.0;
-    double boundaryTolerance         = 0.2;
     double UVBorderLengthReduction   = 0.0;
 
     // === FP_SMALL_CHARTS_REMOVER parameters ===
-    double minAreaThreshold          = 0.0;
+    double maxThreshold          = 0.0;
     int targetTexCount               = 0;
 
     // === SHARED PARAMETERS ===
     double timelimit                 = 0;
     double distortionTolerance       = 0.5;
     double globalDistortionThreshold = 0.025;
-
+    double boundaryTolerance         = 0.2;
 
     // === INTERNAL PARAMETERS (not exposed to the user) ===
     double reductionFactor           = 0.8;
@@ -83,6 +87,10 @@ struct AlgoParameters {
     bool   visitComponents           = true;
     double expb                      = 1.0;
     bool   ignoreOnReject            = false;
+    // If true, all UV overlap checks are bypassed.
+    // Used by UNSAFE distortion mode in FP_SMALL_ISLANDS_REMOVER.
+    bool skipOverlapChecks = false;
+
 };
 
 struct SeamData {
@@ -183,8 +191,8 @@ struct CostInfo {
         ZERO_AREA,
         UNFEASIBLE_BOUNDARY,
         UNFEASIBLE_MATCHING,
-        REJECTED,
         OVER_UV_AREA,
+        REJECTED,
         _END
     };
 

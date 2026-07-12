@@ -52,7 +52,7 @@ FilterTextureDefragPlugin::FilterTextureDefragPlugin()
 {
 	typeList = {
 	    FP_TEXTURE_DEFRAG,
-		FP_SMALL_CHARTS_REMOVER,
+		FP_SMALL_ISLANDS_REMOVER,
 	};
 
 	for(ActionIDType tt: types())
@@ -72,7 +72,7 @@ QString FilterTextureDefragPlugin::filterName(ActionIDType filterId) const
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("Texture Map Defragmentation");
-	case FP_SMALL_CHARTS_REMOVER:
+	case FP_SMALL_ISLANDS_REMOVER:
 		return QString("Small UV Islands Remover");
 	default:
 		assert(0);
@@ -85,7 +85,7 @@ QString FilterTextureDefragPlugin::pythonFilterName(ActionIDType filterId) const
 	switch(filterId) {
 	case FP_TEXTURE_DEFRAG:
 		return QString("apply_texmap_defragmentation");
-	case FP_SMALL_CHARTS_REMOVER:
+	case FP_SMALL_ISLANDS_REMOVER:
 		return QString("apply_small_uv_charts_remover");
 	default:
 		assert(0);
@@ -101,12 +101,12 @@ QString FilterTextureDefragPlugin::filterInfo(ActionIDType filterId) const
 		               The used algorithm is: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
 		               <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
 		               Eurographics 2021");
-	case FP_SMALL_CHARTS_REMOVER:
-		return QString("Attempts to remove all texture islands below a given threshold, by merging them with \
-						   neighbors that share a common seam. \
-						   <br>Based on: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
-						   <i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
-						   Eurographics 2021");
+	case FP_SMALL_ISLANDS_REMOVER:
+		return QString("Attempts to reduce all texture islands within a given size by merging them with neighbors sharing a common seam. \
+						The procedure will try to avoid any distortion and overlap introduced by the removal of islands. \
+						<br>Based on: <br><b>Texture Defragmentation for Photo-Reconstructed 3D Models</b><br> \
+						<i>Andrea Maggiordomo, Paolo Cignoni and Marco Tarini</i> <br>\
+						Eurographics 2021");
 	default: assert(0);
 	}
 	return {"Unknown Filter"};
@@ -116,7 +116,7 @@ int FilterTextureDefragPlugin::getPreConditions(const QAction *a) const
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD;
-		case FP_SMALL_CHARTS_REMOVER : return MeshModel::MM_WEDGTEXCOORD;
+		case FP_SMALL_ISLANDS_REMOVER : return MeshModel::MM_WEDGTEXCOORD;
 		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
@@ -126,7 +126,7 @@ int FilterTextureDefragPlugin::getRequirements(const QAction *a)
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG : return MeshModel::MM_FACEFACETOPO;
-		case FP_SMALL_CHARTS_REMOVER : return MeshModel::MM_FACEFACETOPO;
+		case FP_SMALL_ISLANDS_REMOVER : return MeshModel::MM_FACEFACETOPO;
 		default: assert(0);
 	}
 	return MeshModel::MM_NONE;
@@ -136,7 +136,7 @@ bool FilterTextureDefragPlugin::requiresGLContext(const QAction* a) const
 {
 	switch (ID(a)) {
 	case FP_TEXTURE_DEFRAG: return true;
-	case FP_SMALL_CHARTS_REMOVER: return true;
+	case FP_SMALL_ISLANDS_REMOVER: return true;
 	default: assert(0); return false;
 	}
 }
@@ -146,7 +146,7 @@ int FilterTextureDefragPlugin::postCondition(const QAction *a) const
 	switch (ID(a)) {
 	case FP_TEXTURE_DEFRAG : return MeshModel::MM_WEDGTEXCOORD |
 									MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
-	case FP_SMALL_CHARTS_REMOVER: return MeshModel::MM_WEDGTEXCOORD |
+	case FP_SMALL_ISLANDS_REMOVER: return MeshModel::MM_WEDGTEXCOORD |
 										  MeshModel::MM_GEOMETRY_AND_TOPOLOGY_CHANGE; // just to disable preview...
 	default: assert(0);
 	}
@@ -157,7 +157,7 @@ FilterTextureDefragPlugin::FilterClass FilterTextureDefragPlugin::getClass(const
 {
 	switch (ID(a)) {
 		case FP_TEXTURE_DEFRAG:  return FilterPlugin::Texture;
-		case FP_SMALL_CHARTS_REMOVER: return FilterPlugin::Texture;
+		case FP_SMALL_ISLANDS_REMOVER: return FilterPlugin::Texture;
 		default: assert(0);
 	}
 	return FilterPlugin::Generic;
@@ -209,27 +209,43 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 		                    "Time limit (seconds)",
 		                    "Time limit for the defragmentation process (zero means unlimited)."));
 		break;
-	case FP_SMALL_CHARTS_REMOVER:
-		parlst.addParam( RichDynamicFloat(
-			"minSideNorm",
-			0.0,
-			0.0,
+	case FP_SMALL_ISLANDS_REMOVER:
+
+		// ====== MULTIPLIER FOR AVERAGE =====
+		// parlst.addParam(RichFloat(
+		// 	"maxMultiplier",
+		// 	1.0,
+		// 	"Max size multiplier <br>(relative to average island area)",
+		// 	"Islands whose UV area length is smaller than this factor times the UV area "
+		// 	"island UV area are candidates for removal."
+		// ));
+		// ====== MULTIPLIER FOR MEDIAN =====
+		parlst.addParam(RichFloat(
+			"maxMultiplier",
 			1.0,
-			"Minimum UV island<br>side (normalized)",
-			"Sets the normalized side length of the minimum threshold square area. "
-			       "All island whose area is strictly below this threshold are merged with an adjacent "
-		           "island sharing a seam. If set to zero, the limit is ignored and the default "
-			       "Texture Defragmentation procedure is run instead." ));
-		parlst.addParam(RichEnum(
-			"distortionMode",
-				0,
-			QStringList() << "Strict" << "Loose" << "None",
-			"Distortion Mode",
-			"Determines how we take into account distortion during the merging:"
-				"<br><b>Strict</b>: distortion is strongly taken into account, guaranteeing quality over compactness."
-				"<br><b>Loose</b>: distortion is taken more lightly, guaranteeing compactness over quality."
-				"<br><b>None</b>: distortion is ignored."
+			"Max size multiplier <br>(relative to median island border)",
+			"Islands whose UV boundary length is smaller than this factor times the median "
+			"island boundary length are candidates for removal. A value of 1.0 targets all "
+			"below-median islands; 0.2 targets only the absolute tiniest fragments; values "
+			"above 1.0 also capture larger-than-median islands. Set to 0 to attempt removal "
+			"of all islands regardless of size."
 		));
+		parlst.addParam(RichEnum(
+		"distortionMode",
+		0,
+		QStringList() << "STRICT" << "LOOSE" << "UNSAFE",
+		"Distortion Mode",
+		"Specifies how aggressively the algorithm removes islands:"
+		"<br><b>STRICT</b>: operations that introduce significant geometric distortion are immediately rejected. Prioritizes visual fidelity over compactness."
+		"<br><b>LOOSE</b>: distortion introduced by the removal of islands is ignored. Still, operations that introduce overlaps are rejected. Prioritizes layout compactness over quality."
+		"<br><b>UNSAFE</b>: ignores any distortion and intersection introduced by a merge operation. This mode leads to the most compact and fast result."
+		"Note that topologically incompatible merges are still skipped, as they cannot be parameterized."
+		));
+		parlst.addParam(RichBool(
+	"quickRun",
+	false,
+	"Quick execution",
+	"Speeds up the running time of the filter by never attempting again any rejected merge operation. <br> Although fast, it could lead to worst results."));
 		parlst.addParam(RichInt(
 		"targetTexCount",
 		0,
@@ -241,11 +257,6 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 			0.0,
 			"Time limit<br>(seconds)",
 			"Time limit for the process (zero means unlimited)." ));
-		parlst.addParam(RichBool(
-			"quickRun",
-			false,
-			"Quick execution",
-			"Speeds up the running time of the filter by never attempting again any rejected merge operation. <br> Although fast, it could lead to worst results." ));
 		break;
 	default:
 		break;
@@ -262,7 +273,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
         CallBackPos *cb)
 {
 	if (ID(filter) != FP_TEXTURE_DEFRAG &&
-		ID(filter) != FP_SMALL_CHARTS_REMOVER) {
+		ID(filter) != FP_SMALL_ISLANDS_REMOVER) {
 		wrongActionCalled(filter);
 	}
 
@@ -278,7 +289,16 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	// This filter will work on this duplicate rather than the original.
 	//
 	// The texture path is saved for later use.
-	MeshModel& mm = *(md.addNewMesh(md.mm()->cm, "texdefrag_" + currentModel.label()));
+	QString meshLabel;
+	switch (ID(filter)) {
+		case FP_TEXTURE_DEFRAG:
+			meshLabel = "texdefrag_" + currentModel.label();
+			break;
+		case FP_SMALL_ISLANDS_REMOVER:
+			meshLabel = "islands-remover_" + currentModel.label();
+			break;
+	}
+	MeshModel& mm = *(md.addNewMesh(md.mm()->cm, meshLabel));
 	mm.updateDataMask(&currentModel);
 	QString path = currentModel.pathName();
 
@@ -334,7 +354,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 
 	// All texture images referenced by the mesh are loaded into a TextureObject.
 	// This instance provides direct access to the raw pixel data for UV-to-pixel
-	// coordinate conversion. It will by also used by the final resampling phase.
+	// coordinate conversion. It will be also used by the final resampling phase.
 	TextureObjectHandle textureObject = std::make_shared<TextureObject>();
 	for (const std::string& textureName : currentModel.cm.textures) {
 		textureObject->AddImage(currentModel.getTexture(textureName));
@@ -361,7 +381,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	//	* CutAlongSeam splits the mesh along the UV seams by duplicating
 	//	  vertices, making Face-Face adjacency stop at the chart boundaries.
 	//
-	//	* ComputeGraph identifies the UV charts and builds the chart adjacency graph.
+	//	* ComputeGraph identifies the UV islands and builds the islands adjacency graph.
 	Compute3DFaceAdjacencyAttribute(defragMesh);
 	CutAlongSeams(defragMesh);
 	GraphHandle graph = ComputeGraph(defragMesh, textureObject);
@@ -405,7 +425,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	// ensure a consistent orientation across the atlas.
 	//
 	// The original flip states are recorded in the attribute `flipped`. When generating the final
-	// optimized mesh, we need to rollback the original orientation.
+	// optimized mesh, we need to roll back the original orientation.
 	std::map<RegionID, bool> flipped;
 	for (auto& c : graph->charts)
 		flipped[c.first] = c.second->UVFlipped();
@@ -413,11 +433,12 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 
 	// run defragmentation algorithm
 
-	// Retrieve all user-specified parameters from the MeshLab's Texture Defragmentation
-	// dialog window and pack them into the AlgoParameters instance `ap`. This object is
-	// just a collection of values.
+	// Retrieve all user-specified parameters from the MeshLab's dialog window and
+	// pack them into the AlgoParameters instance `ap`. This object is just a collection
+	// of values.
 	//
-	// The fields being retrieved depend on the current variant of Texture Defragmentation.
+	// The fields being retrieved depend on the current variant of Texture Defragmentation
+	// being executed.
 	AlgoParameters ap;
 	ap.filterType = ID(filter);
 	switch (ID(filter)) {
@@ -432,46 +453,108 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 		}
 		break;
 
-		case FP_SMALL_CHARTS_REMOVER: {
+		case FP_SMALL_ISLANDS_REMOVER: {
 			ap.timelimit = par.getFloat("timelimit");
 			ap.reduce = true;
 			ap.ignoreOnReject = par.getBool("quickRun");
 			ap.targetTexCount = par.getInt("targetTexCount");
 
-			// Convert the user-provided side of our square threshold
-			// area from normalized space into pixel space.
+
+			// Disable the boundary ratio check: small islands often have seams
+			// covering only a tiny fraction of their boundary, which the default
+			// check would reject. A negative value makes the check always false.
+			ap.boundaryTolerance = -1.0;
+
+			// Prevent early termination based on UV border reduction — we want to
+			// attempt all eligible operations. A negative value makes the check
+			// always false.
+			ap.UVBorderLengthReduction = -1.0;
+
+			// Eliminate the boundary-ratio exponent penalty in ComputeCost: small
+			// islands are precisely the ones with poor seam-to-boundary ratios, so
+			// penalizing them would deprioritize exactly the merges we want.
+			ap.expb = 0.0;
+
+
+			const double multiplier = par.getFloat("maxMultiplier");
+			// There are different ways to set the UV Area Threshold. Here are provided
+			// different implementations.
 			//
-			// Note that each texture has its own size; for the sake of convenience,
-			//  we always reference the first one.
-			double minSideNorm = par.getFloat("minSideNorm");
-			ap.minAreaThreshold = minSideNorm == 0.0 ? graph->AreaUV() : minSideNorm * graph->AreaUV();
+			// ============= USE THE UV AREA DIRECTLY =============
+			// In this scenario the user chooses a value in [0-1] which identifies
+			// the percentage of UV Area that will represent the threshold.
+			// Easy to compute, not good to provide a good metric at all.
+			// ap.maxAreaThreshold = maxAreaThresholdNormalized * graph->AreaUV();
+			// log("maxAreaThreshold =" + std::to_string(ap.maxAreaThreshold));
+			//
+			// ============= USE THE AVERAGE ISLAND SIZE =============
+			// We compute the average island size within the mesh. Then the user defines
+			// a multiplier over it to determine the threshold.
+			// Fairs better compared to the raw UV area, but can lead to bad results
+			// if the distribution of islands is not equal.
+			// double avgChartArea = graph->AreaUV() / static_cast<double>(graph->charts.size());
+			// ap.maxThreshold = multiplier > 0 ? multiplier * avgChartArea : graph->AreaUV();
+			// log("avgChartArea = " + std::to_string(avgChartArea) +
+			// 	"\tmaxAreaThreshold = " + std::to_string(ap.maxThreshold));
+			//
+			// ========== TRANSLATION OVER MULTIPLIER AGAINST MEDIAN ISLAND SIZE ===========
+			// We compute the median island size within the mesh. Then the user defines
+			// a multiplier over it to determine the final threshold.
+			// We use the UV Border since it guarantees that it scaled identically when resolution changes.
+			//
+			// Compute the set of all islands' border length and sort them in increasing order
+			// Then compute the median and set the threshold.
+			std::vector<double> borderLengths;
+			borderLengths.reserve(graph->charts.size());
+			for (const auto &ch : graph->charts) {
+				borderLengths.push_back(ch.second->BorderUV());
+			}
+			std::sort(borderLengths.begin(), borderLengths.end());
+
+			const size_t n = borderLengths.size();
+			const double medianBorder = (n % 2 == 0) ?
+				( borderLengths [(n / 2) - 1] + borderLengths [n / 2] ) / 2.0 :
+				borderLengths [ n / 2 ];
+
+			ap.maxThreshold = multiplier > 0 ?
+				multiplier * medianBorder :
+				graph->BorderUV();
+
+			log ("medianBorder = " + std::to_string(medianBorder));
+			log ("maxBorderThreshold = " + std::to_string(ap.maxThreshold));
+
 
 			// The Distortion Mode selected by the user will determine the values
 			// the algorithm will use for `distortionTolerance` and `globalDistortionThreshold`,
 			int distortionMode = par.getInt("distortionMode");
 			switch (distortionMode) {
-				// Strict Mode
+				// STRICT Mode
+				// More tolerant to distortion compared to standard Texture Defragmentation, still all distortion checks are done.
 				case 0:
-					ap.distortionTolerance = 0.5;
-					ap.globalDistortionThreshold = 0.25;
+					ap.distortionTolerance       = 2.0;
+					ap.globalDistortionThreshold = 0.1;
+					ap.matchingThreshold         = 5.0;
 					break;
-				// Loose Mode
-				// We do not care about the local distortion and only focus at the global level.
+				// LOOSE Mode:
+				// All checks regarding the distortion introduced by a merge operation are ignored.
 				case 1:
 					ap.distortionTolerance = Infinity();
-					ap.globalDistortionThreshold = 0.5;
+					ap.globalDistortionThreshold = Infinity();
+					// To avoid the check of `avgError` in `ComputeCost`(seam_remover.cpp) at ~row 933.
+					ap.matchingThreshold = Infinity();
 					break;
-				// None Mode
-				// The thresholds are within [0,1], so putting Infinity() or 1.0 is the same.
-				// I kept Infinity() because it conveys better that we are disregarding the
-				// distortions completely.
+				// UNSAFE Mode:
+				// All checks regarding both distortions and fold/overlaps are ignored.
 				case 2:
 					ap.distortionTolerance = Infinity();
 					ap.globalDistortionThreshold = Infinity();
+					ap.matchingThreshold = Infinity();
+					ap.skipOverlapChecks = true;
 					break;
 				default:
-					ap.distortionTolerance = 0.5;
-					ap.globalDistortionThreshold = 0.25;
+					ap.distortionTolerance       = 2.0;
+					ap.globalDistortionThreshold = 0.1;
+					ap.matchingThreshold         = 5.0;
 					break;
 			}
 		}
@@ -491,7 +574,8 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	//	* `GreedyOptimization` runs a greedy merge loop, repeatedly merging the currently most convenient
 	//	  merge operation. After a merge it tries to run an As-Rigid-As-Possible (ARAP) optimization to fix
 	//	  the introduced distortion. Note that if the merge introduces too much distortion or unfixable
-	//	  overlaps, it is rejected and its operations are rolled back.
+	//	  overlaps, it is rejected and its operations are rolled back. Note that the distortion checks are
+	//	  skipped when execution Small Islands Remover with distortionMode set to LOOSE.
 	//
 	//	* `Finalize` prepares the now optimized input mesh to be returned, collapsing coincident duplicate
 	//	  vertices, removing orphaned vertices and rebuilding topologies.
@@ -605,7 +689,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	//
 	// Note that if `targetTexCount` is set to zero, then the parameter is ignored, and
 	// we entirely skip this step.
-	if (ap.filterType == FP_SMALL_CHARTS_REMOVER &&
+	if (ap.filterType == FP_SMALL_ISLANDS_REMOVER &&
 		ap.targetTexCount > 0					 &&
 		newTextures.size() > ap.targetTexCount) {
 		std::vector<QImage> convertedTexs;
@@ -649,7 +733,7 @@ FilterPlugin::FilterArity FilterTextureDefragPlugin::filterArity(const QAction *
 {
 	switch(ID(filter)) {
 		case FP_TEXTURE_DEFRAG: return FilterPlugin::SINGLE_MESH;
-		case FP_SMALL_CHARTS_REMOVER: return FilterPlugin::SINGLE_MESH;
+		case FP_SMALL_ISLANDS_REMOVER: return FilterPlugin::SINGLE_MESH;
 		default: wrongActionCalled(filter);
 	}
 

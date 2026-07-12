@@ -104,10 +104,11 @@ static vcg::Color4b statusColor[] = {
 };
 
 static vcg::Color4b mvColor[] = {
-    vcg::Color4b::White, //   FEASIBLE=0,
-    vcg::Color4b::Black, //   ZERO_AREA,
-    vcg::Color4b::Cyan, //   UNFEASIBLE_BOUNDARY,
-    vcg::Color4b::Magenta //   UNFEASIBLE_MATCHING,
+    vcg::Color4b::White,    //  FEASIBLE=0,
+    vcg::Color4b::Black,    //  ZERO_AREA,
+    vcg::Color4b::Cyan,     //  UNFEASIBLE_BOUNDARY,
+    vcg::Color4b::Magenta,  //  UNFEASIBLE_MATCHING,
+    vcg::Color4b::Yellow    //  UV_THRESHOLD_EXCEEDED
 };
 
 static int accept = 0;
@@ -358,10 +359,11 @@ AlgoStateHandle InitializeState(GraphHandle graph, const AlgoParameters& algoPar
     // consistently separate the same pair of charts. Note that there could be
     // multiple connected components for the same pair of charts.
     //
-    // Each group is constructed as a SeamHandle instance containing the ordered list of edges
-    // forming it and the endpoints of the chain.
+    // Each group is constructed as a SeamHandle instance containing the ordered
+    // list of edges forming it and the endpoints of the chain.
     //
-    // From now on we refer to a connected component as a seam, while edges are its primitives members.
+    // From now on we refer to a connected component as a seam, while edges are its
+    // primitives members.
     std::vector<ClusteredSeamHandle> cshvec = ClusterSeamsByChartId(seams);
 
     // We update `state->sm` by grouping together seam chains sharing the same pair of charts.
@@ -416,7 +418,7 @@ void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoPara
     // distribution) as a baseline, via PrintStateInfo.
     //
     // The global ARAP energy of the entire atlas is logged as the pre-optimization
-    // reference point. This is used as snapshot for comparing it against our improvements.
+    // reference point. This is used as a snapshot for comparing it against our improvements.
     ClearGlobals();
     Timer timer;
     PrintStateInfo(state, graph, params);
@@ -440,6 +442,7 @@ void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoPara
         if (state->queue.size() > 5 * state->cost.size())
             PurgeQueue(state);
 
+        // ======== TERMINATION CONDITIONS FOR THE GREEDY STRAT ========
         // At the start of each iteration we check if the algorithm can be stopped.
         // We define three termination criteria:
         //
@@ -453,6 +456,10 @@ void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoPara
         //    reduced by our optimizations.
         //    If this value is gone below a user-defined threshold, our target
         //    defragmentation has been achieved and the algorithm can stop.
+        //
+        //    In a Small Islands Remove execution, we aim to remove as many
+        //    small islands as possible. So this last termination condition
+        //    is not considered.
         if (state->queue.size() == 0) {
             LOG_INFO << "Queue is empty, interrupting.";
             break;
@@ -508,8 +515,8 @@ void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoPara
                 OffsetMap om = AlignAndMerge(ws.first, sd, state->transform[ws.first], params);
 
                 // We use the displacement offsets in `om` to identify which faces need
-                // a As-Rigid-As-Possible (ARAP) optimization (i.e., needs to be moved
-                // to decrease their distortion).  For each of them we back up their
+                // an As-Rigid-As-Possible (ARAP) optimization (i.e., needs to be moved
+                // to decrease their distortion). For each of them we back up their
                 // current UV coordinates and measure the pre-optimization folded area
                 // ratio.
                 ComputeOptimizationArea(sd, graph->mesh, om);
@@ -519,8 +526,12 @@ void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoPara
                 // an overlap is found, then the mesh is immediately rejected with the status
                 // `FAIL_GLOBAL_OVERLAP_BEFORE`.
                 //
-                // This check is only necessary for merges involving two distinct charts.
-                CheckStatus status = (sd.a != sd.b) ? CheckBoundaryAfterAlignment(sd) : PASS;
+                // When in Small Islands Remover the distortionMode is set to UNSAFE, we skip
+                // this check.
+                CheckStatus status = PASS;
+                if (!params.skipOverlapChecks) {
+                    status = (sd.a != sd.b) ? CheckBoundaryAfterAlignment(sd) : PASS;
+                }
 
                 // We run the ARAP solver onto the optimization area. The ARAP algorithm will
                 // try to find the best UV coordinates that minimize distortion while
@@ -530,16 +541,22 @@ void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoPara
                 // setting the parameter `fixIntersectingEdges` to false.
                 //
                 // The ARAP solver will return a status, indicating if it succeeded or failed.
-                if (status == PASS)
+                if (status == PASS) {
                     status = OptimizeChart(sd, graph, false);
+                }
 
                 // If the ARAP solver succeeded, we then check that the proposed optimized
                 // parametrization provides acceptable distortions both globally and locally
                 // and that it has introduced no new overlaps.
                 //
                 // If not satisfied, each check returns a distinct failure status.
-                if (status == PASS)
-                    status = CheckAfterLocalOptimization(sd, state, params);
+                //
+                // When in Small Islands Remover the distortionMode is set to UNSAFE, we skip
+                // this check.
+                if (!params.skipOverlapChecks) {
+                    if (status == PASS)
+                        status = CheckAfterLocalOptimization(sd, state, params);
+                }
 
                 // Within the possible failed states, two particular cases can be fixed:
                 //
@@ -554,13 +571,18 @@ void GreedyOptimization(GraphHandle graph, AlgoStateHandle state, const AlgoPara
                 // The check is then repeated until either all overlaps are resolved or no
                 // new vertices could be pinned. This last case is associated to the special
                 // status `_END`.
-                while (status == FAIL_GLOBAL_OVERLAP_AFTER_OPT || status == FAIL_GLOBAL_OVERLAP_AFTER_BND) {
-                    LOG_DEBUG << "Global overlaps detected after ARAP optimization, fixing edges";
-                    CheckStatus iterStatus = OptimizeChart(sd, graph, true);
-                    if (iterStatus == _END)
-                        break;
-                    else
-                        status = CheckAfterLocalOptimization(sd, state, params);
+                //
+                // When in Small Islands Remover the distortionMode is set to UNSAFE, we skip
+                // this check.
+                if (!params.skipOverlapChecks) {
+                    while (status == FAIL_GLOBAL_OVERLAP_AFTER_OPT || status == FAIL_GLOBAL_OVERLAP_AFTER_BND) {
+                        LOG_DEBUG << "Global overlaps detected after ARAP optimization, fixing edges";
+                        CheckStatus iterStatus = OptimizeChart(sd, graph, true);
+                        if (iterStatus == _END)
+                            break;
+                        else
+                            status = CheckAfterLocalOptimization(sd, state, params);
+                    }
                 }
 
                 // The current status is the final one for the merge operation.
@@ -608,7 +630,7 @@ void Finalize(GraphHandle graph, int *vndup) {
     // Recall that at the beginning of the Texture Defragmentation procedure, for
     // individualizing and fixing the seams present on the mesh, we duplicated the
     // vertices such that each chart had its own unique copy.
-    // Since now we are returning the optimized final mesh, these extra vertices
+    // Since we are returning the optimized final mesh, these extra vertices
     // are not needed anymore and must be removed.
     //
     // We copy all vertices in the final mesh into the set `vset` (the duplicates are
@@ -649,8 +671,10 @@ void Finalize(GraphHandle graph, int *vndup) {
  */
 static void InsertNewClusterInQueue(ClusteredSeamHandle csh, AlgoStateHandle state, GraphHandle graph, const AlgoParameters& params)
 {
-    // We color all faces adjacent to the seam in white. This is done as a preliminary step just to visualize the faces
-    // which will be evaluated in this algorithm.
+    // We color all faces adjacent to the seam in white.
+    // This is done as a preliminary step just to
+    // visualize the faces which will be evaluated
+    // in this algorithm.
     ColorizeSeam(csh, vcg::Color4b::White);
 
     // Compute the cost of merging the two charts separated by the seam.
@@ -663,15 +687,16 @@ static void InsertNewClusterInQueue(ClusteredSeamHandle csh, AlgoStateHandle sta
     CostInfo ci = ComputeCost(csh, graph, params, GetPenalty(csh, state));
 
     // When `ComputeCost` determines that the two charts' UV boundaries are too geometrically
-    // incompatible to align under a rigid transformation (`UNFEASIBLE_MATCHING`), and the reduce
-    // flag is set, we iteratively trim the seam until a feasible matching is found.
+    // incompatible to align under a rigid transformation (`UNFEASIBLE_MATCHING`), and the
+    // reduce flag is set, we iteratively trim the seam until a feasible matching is found.
     //
-    // Each call to `ReduceSeam` modifies `csh` in place, updating the entry with the computed shorter prefix or suffix.
-    // The cost is also updated.
+    // Each call to `ReduceSeam` modifies `csh` in place, updating the entry with the computed
+    // shorter prefix or suffix. The cost is also updated.
     //
     // The loop continues until the result is deemed acceptable.
     //
-    // Note that `UNFEASIBLE_BOUNDARY` and `ZERO_AREA` are not handled: reduction only addresses geometric incompatibility.
+    // Note that `UNFEASIBLE_BOUNDARY` and `ZERO_AREA` are not handled: reduction only addresses
+    // geometric incompatibility.
     if (params.reduce) {
         while (ci.mvalue == CostInfo::UNFEASIBLE_MATCHING) {
             ci = ReduceSeam(csh, state, graph, params);
@@ -730,11 +755,11 @@ static void InsertNewClusterInQueue(ClusteredSeamHandle csh, AlgoStateHandle sta
     state->chartSeamMap[p.first->id].insert(csh);
     state->chartSeamMap[p.second->id].insert(csh);
 
-    // We update `emap` with the current seam's endpoints. The data structure maps each seamMesh vertex index to the
-    // set of seams that have that vertex as an endpoint.
+    // We update `emap` with the current seam's endpoints. The data structure maps each
+    // seamMesh vertex index to the set of seams that have that vertex as an endpoint.
     //
-    // It is used to detect topological conflicts: if two seams share an endpoint vertex, merging one
-    // of them may invalidate the other.
+    // It is used to detect topological conflicts: if two seams share an endpoint
+    // vertex, merging one of them may invalidate the other.
     std::set<int> endpoints = GetEndpoints(csh);
     for (auto vi : endpoints)
         state->emap[vi].insert(csh);
@@ -837,35 +862,49 @@ static CostInfo ComputeCost (
     // Universal (all variants), if one of the charts has zero area in UV or 3D space, the
     // merge is meaningless and immediately rejected with CostInfo::ZERO_AREA.
     //
-    // FP_SMALL_CHART_REMOVER: if both charts have UV area > minAreaThreshold, neither
-    // qualifies as a small chart, and the merge is rejected with CostInfo::Over_UV_AREA.
-    // The check is skipped when minAreaThreshold <= 0 (i.e., no area restriction).
+    // FP_SMALL_CHART_REMOVER: if both charts have UV area > maxAreaThreshold, neither
+    // qualifies as a small chart, and the merge is rejected with CostInfo::UV_THRESHOLD_EXCEEDED.
+    // The check is skipped when maxAreaThreshold <= 0 (i.e., no area restriction).
     const bool zeroArea = a->AreaUV() == 0 || b->AreaUV() == 0 ||
                           a->Area3D() == 0 || b->Area3D() == 0;
     if (zeroArea) {
         return { Infinity(), {}, CostInfo::ZERO_AREA };
+
     }
-    const bool smallIslandCond =  params.filterType == FilterTextureDefragPlugin::FP_SMALL_CHARTS_REMOVER  &&
-                                  params.minAreaThreshold > 0                                              &&
-                                  a->AreaUV() > params.minAreaThreshold                                    &&
-                                  b->AreaUV() > params.minAreaThreshold;
+    // ========= VARIANT USING AVERAGE AREA =========
+    // const bool smallIslandCond =  params.filterType == FilterTextureDefragPlugin::FP_SMALL_ISLANDS_REMOVER  &&
+    //                           params.maxThreshold > 0                                                       &&
+    //                           a->AreaUV() > params.maxThreshold                                             &&
+    //                           b->AreaUV() > params.maxThreshold;
+    // ========= VARIANT USING MEDIAN BORDER =========
+    const bool smallIslandCond =  params.filterType == FilterTextureDefragPlugin::FP_SMALL_ISLANDS_REMOVER  &&
+                                  params.maxThreshold > 0                                                   &&
+                                  a->BorderUV() > params.maxThreshold                                       &&
+                                  b->BorderUV() > params.maxThreshold;
+
     if (smallIslandCond) {
         return { Infinity(), {}, CostInfo::OVER_UV_AREA };
     }
+
+    // While computing the final cost, some conditions could immediately reject the merge operation.
+    // Most reasons involve that the merge could introduce too much distortion to even try doing it.
+    //
+    // When executing Small Islands Remover with distortionMode set to `LOOSE`, we skip any check
+    // regarding the distortion introduced.
 
     // We construct two parallel arrays, each containing the UV positions of the seam vertices as seen from the two
     // charts' sides:
     // - `bpa` contains the UV positions of the seam vertices as seen from chart A's side.
     // - `bpb` contains the same vertices as seen from chart B's side.
-    // Since each seam edge has two UV-space representations (one per chart), these two arrays capture the same geometric
-    // seam boundary in two different UV spaces.
+    // Since each seam edge has two UV-space representations (one per chart), these two arrays capture the same
+    // geometric seam boundary in two different UV spaces.
     std::vector<vcg::Point2d> bpa;
     std::vector<vcg::Point2d> bpb;
     ExtractUVCoordinates(csh, bpa, bpb, {a->id});
 
-    // Compute the best-fit rigid transformation matrix (i.e. a roto-translation matrix) that aligns bpa onto bpb.
+    // Compute the best-fit rigid transformation matrix (i.e., a roto-translation matrix) that aligns bpa onto bpb.
     //
-    // Note that, for self-cut seams (a == b), no matching is needed, so `mi`stays as the identity matrix.
+    // Note that, for self-cut seams (a == b), no matching is needed (we set `mi` to the identity matrix).
     MatchingTransform mi = MatchingTransform::Identity();
     if (a != b) {
         mi = ComputeMatchingRigidMatrix(bpa, bpb);
@@ -897,10 +936,13 @@ static CostInfo ComputeCost (
     ci.matching = mi;
     ci.mvalue = CostInfo::FEASIBLE;
 
-    // We measure how large the seam is compared to the total UV boundary of each chart. It is computed as the maximum
-    // between the two ratios (one per chart). If this ratio is below our boundary tolerance (passed as a parameter), the
-    // seam is too small to make the merge convenient. If so, we mark the seam as UNFEASIBLE_BOUNDARY, telling the algorithm
-    // to skip it.
+    // In Texture Defragmentation we measure how large the seam is compared to the total UV boundary of each chart.
+    // It is computed as the maximum between the two ratios (one per chart). If this ratio is below our boundary
+    // tolerance (passed as a parameter), the seam is too small to make the merge convenient.
+    // If so, we mark the seam as UNFEASIBLE_BOUNDARY, telling the algorithm to skip it.
+    //
+    // In Small Islands Remover the aim of the filter is to remove small islands, so we should consider them always
+    // convenient. For this reason we skip this check entirely.
     if (a != b) {
         double maxSeamToBoundaryRatio = std::max(bmap[a->id] / a->BorderUV(), bmap[b->id] / b->BorderUV());
         if (maxSeamToBoundaryRatio < params.boundaryTolerance && (!params.visitComponents || !IslandLookahead(a, b, 5))) {
@@ -910,13 +952,14 @@ static CostInfo ComputeCost (
         }
     }
 
-
     // We measure how well our roto-translation matrix actually aligns bpa onto bpb, computing the total residual
     // error after applying the best-fit rigid transform.
     //
     // The result is then normalized by the number of seam vertices as `avgErr`. If `avgErr` exceeds a threshold
     // proportional to the average UV seam length. the two charts' UV boundaries are too geometrically incompatible
     // to merge without unacceptable distortion — the seam is marked UNFEASIBLE_MATCHING.
+    //
+    // In Small Islands Remover when the distortionMode is set to `LOOSE`, we skip this check.
     double totErr = MatchingErrorTotal(mi, bpa, bpb);
     double avgErr = totErr / (double) bpa.size();
     if (avgErr > params.matchingThreshold * ((bmap[a->id] + bmap[b->id]) / 2.0)) {
@@ -925,19 +968,13 @@ static CostInfo ComputeCost (
         return ci;
     }
 
-    // The cost combines two factors:
+    // The final cost is obtained by also considering three additional factors:
     //
-    // lossgain: the matching error (avgErr), scaled by a boundary ratio penalty. The ratio BorderUV / bmap is the
+    // - lossgain: the matching error (avgErr), scaled by a boundary ratio penalty. The ratio BorderUV / bmap is the
     // inverse of what was checked above — it's large when the seam is a small fraction of the chart's boundary.
     // Raising this to params.expb (a tunable exponent) controls how aggressively small-contact seams are penalized.
     // Intuitively: a seam that covers most of a chart's boundary is cheaper to process (low lossgain) than one that
     // barely touches it (high lossgain).
-    //
-
-
-    // The final cost is obtained by also considering three additional factors:
-    //
-    // - lossgain: the matching error `avgErr` scaled by a boundary ratio penalty.
     //
     // - sizebonus: A more convenient score is given to operations merging a really small chart.
     //
@@ -1851,10 +1888,6 @@ static CheckStatus CheckAfterLocalOptimizationInner(SeamData& sd, AlgoStateHandl
         }
     }
 
-
-    // also ensure that the optimization border does not overlap any internal edge (inside or outside the optimization area)
-    // to speed things up, only check edges that are inside the bbox of the opt area
-
     // =============================== CHECK INTERNAL EDGES OVERLAP ===============================
     // As of now we have checked for overlap only boundary edges, we need to ensure
     // that the optimization border does not fold over any internal one, both inside
@@ -2009,7 +2042,6 @@ static CheckStatus OptimizeChart(SeamData& sd, GraphHandle graph, bool fixInters
             sf.V(j)->T() = sf.WT(j);
         }
     }
-
 
     // The previous align and merge operation could have introduced non-manifold vertices.
     //
