@@ -136,6 +136,8 @@ bool SaveMesh(const char *fileName, Mesh& m, const std::vector<std::shared_ptr<Q
 void ScaleTextureCoordinatesToImage(Mesh& m, TextureObjectHandle textureObject)
 {
     for (auto& f : m.face) {
+        // ti stores the index of the texture image associated to the face. Since a triangle cannot span multiple textures,
+        // all wedges within the same face are guaranteed to reference the same texture.
         int ti = f.WT(0).N();
         for (int i = 0; i < f.VN(); ++i) {
             f.WT(i).P().X() *= (ti < (int) textureObject->ArraySize()) ? textureObject->TextureWidth(ti) : 1.0;

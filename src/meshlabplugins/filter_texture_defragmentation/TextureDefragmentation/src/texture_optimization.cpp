@@ -39,6 +39,7 @@
 
 static void MirrorU(ChartHandle chart);
 
+
 void ReorientCharts(GraphHandle graph)
 {
     for (auto entry : graph->charts) {

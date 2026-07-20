@@ -28,6 +28,7 @@
 #include <QObject>
 #include <QTime>
 
+#include "meshlabplugins/filter_texture/texture_packer.hpp"
 #include <common/plugins/interfaces/filter_plugin.h>
 #include <vcg/complex/append.h>
 #include <vcg/complex/algorithms/attribute_seam.h>
@@ -44,6 +45,7 @@ class FilterTextureDefragPlugin : public QObject, public FilterPlugin
 
 	enum {
 		FP_TEXTURE_DEFRAG,
+		FP_SMALL_ISLANDS_REMOVER,
 	};
 
 	FilterTextureDefragPlugin();
