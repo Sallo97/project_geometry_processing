@@ -26,13 +26,12 @@
 #include <functional>
 #include <QImage>
 
-#include "common/mlexception.h"
 #include "common/ml_document/mesh_model.h"
 #include "vcg/space/rect_packer.h"
 
 /**
  * Utility class that let the user position n source textures into
- * m destination containers (i.e., output textures) where m is
+ * m destination containers (i.e., output textures); m is
  * always minor or equal than n.
  *
  * The implementation tries to distribute the inputs evenly across
@@ -66,15 +65,14 @@ class TexturePacker {
          */
         static std::vector<QImage> simplePacking (
                 const std::vector<QImage> &srcTexts,
-                const int containerNum,
+                int containerNum,
                 MeshModel &mesh);
 
     private:
 
         // ================ PRIVATE STRUCTS AND CLASSES ================
         /**
-         * Holder storing for a source texture all the information regarding
-         * how it is stored within its container.
+         * Holder mapping source textures into containers.
          *
          * Its fields are:
          *
@@ -92,8 +90,7 @@ class TexturePacker {
             vcg::Point2i containerOff = vcg::Point2i(0,0);
         };
 
-        /* Holder storing for a container texture all the information necessary
-         * for constructing it.
+        /* Holder mapping container textures to source textures.
          *
          * Its fields are:
          *
@@ -126,8 +123,8 @@ class TexturePacker {
         // - containerToSrc keeps for each container (indexed by its ID) the final
         //   dimensions and the list of source textures (represented by their ID)
         //   that have been placed within.
-        const int srcNum;
-        const int containerNum;
+        const unsigned long srcNum;
+        const unsigned long containerNum;
         MeshModel &mesh;
         std::vector<SrcInfo> srcToContainer;
         std::vector<ContainerInfo> containerToSrc;
@@ -136,19 +133,19 @@ class TexturePacker {
 
         /*!
          * It constructs a base instance filling the initial mappings for the sources and the containers.
-         * No packing has been done after the construction, it only determines which sources go to which
+         * No packing has been done after the construction; it only determines which sources go to which
          * container.
          */
         TexturePacker (
             const std::vector<QImage> &srcTexts,
-            const int containerNum,
+            int containerNum,
             MeshModel &mesh);
 
         /*!
          * Updates the mesh's texture coordinates according to the new
          * containers.
          */
-        void updateMeshUV ();
+        void updateMeshUV () const;
 
         /*!
          * Finds the best-fit placement for all the containers

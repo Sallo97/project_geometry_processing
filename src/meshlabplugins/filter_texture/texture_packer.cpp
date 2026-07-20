@@ -30,13 +30,9 @@ std::vector<QImage> TexturePacker::simplePacking (
 {
 
     // The packer can work only if the number of input textures
-    // is major or equal than the requested number of outputs.
-    //
-    // If not, exit the process immediately with an error message
-    if (srcTexts.size() <= containerNum) {
-        throw InvalidInvariantException
-            ("the number of source textures is smaller or equal than the output requested");
-    }
+    // is strictly major than the requested number of outputs.
+    assert(srcTexts.size() <= containerNum);
+
     TexturePacker packer(srcTexts, containerNum, mesh);
     packer.findBestPlacement();
     packer.updateMeshUV();
@@ -53,17 +49,11 @@ TexturePacker::TexturePacker(
     // Note, we are assuming that the number of source textures
     // is major or equal than the number of requested outputs.
     // The check is always done before construction by the static
-    // function `pack`.
+    // function `simplePacking`.
     //
-    // We first initialize both`srcToContainer` and `containerSize`.
-    // `srcToContainer` has `srcNum` fixed number of entries; `containerSize`
-    // has `containerNum` fixed number of entries.
-    //
-    // We then distribute the source textures among the container.
-    // The distribution is done equally by using integer ceiling division.
-    // The last container usually holds a smaller number of sources if the
-    // division is not exact.
-
+    // We first initialize both `srcToContainer` and `containerSize`.
+    // `srcToContainer` has `srcNum` fixed number of entries.
+    // `containerSize` has `containerNum` fixed number of entries.
     srcToContainer.reserve(srcNum);
     containerToSrc.reserve(containerNum);
     for (int i = 0; i < srcNum; ++i) {
@@ -74,14 +64,16 @@ TexturePacker::TexturePacker(
         containerToSrc[i].srcContained.reserve((srcNum + containerNum - 1) / containerNum);
     }
 
-    // We determine the amount of sources per container dynamically.
-    // It this way we guarantee a balanced distribution.
-    int srcLeft = srcNum;
-    int containerLeft = containerNum;
+    // We distribute source textures across containers as evenly as possible.
+    // At each step, the number of sources assigned to the current container
+    // is computed as the ceiling division of remaining sources by remaining
+    // containers:
+    unsigned long srcLeft = srcNum;
+    unsigned long containerLeft = containerNum;
     int currContainer = 0;
     int srcID = 0;
     while (srcLeft > 0) {
-        const int numOfSrcPerContainer = (srcLeft + containerLeft - 1) / containerLeft;
+        const unsigned long numOfSrcPerContainer = (srcLeft + containerLeft - 1) / containerLeft;
 
         // For the container we update its mapping by adding
         // the current source to the ones it will pack.
@@ -94,7 +86,7 @@ TexturePacker::TexturePacker(
             srcID++;
         }
 
-        // Update the left counters
+        // Update the counters.
         srcLeft -= numOfSrcPerContainer;
         containerLeft -= 1;
         currContainer++;
@@ -105,24 +97,24 @@ void TexturePacker::findBestPlacement() {
     // For each container we compute the heuristic optimal square which is
     // able to store all the textures associated with that container.
     //
-    // This square will have as total area the sum of all sources' area.
+    // This square has as total area the sum of all sources' area.
     // A side of the square has length equal to the square root of its area.
     //
     // Computed the square, we try to pack the textures within using a bin packer
-    // technique via the VCGLib function RectPacker::PackInt. The algorithm returns
+    // technique (via the VCGLib function RectPacker::PackInt). The algorithm returns
     // true if it was able to pack everything. If not, we increment the square's size
     // by 10% and repeat the process until we are able to.
     //
     // The resulting square's size is assigned to the container's entry in `containerToSrc`.
     // The source entries in `srcToContainer` are updated with their new offset positions.
-    for (int containerID = 0; containerID < containerToSrc.size(); ++containerID) {
+    for (auto & containerID : containerToSrc) {
 
         // If the current container has to pack just a single texture, simply copy it
         // without doing any actual packing.
-        if (containerToSrc[containerID].srcContained.size() == 1) {
-            const int srcID = containerToSrc[containerID].srcContained[0];
+        if (containerID.srcContained.size() == 1) {
+            const int srcID = containerID.srcContained[0];
             srcToContainer[srcID].containerOff = vcg::Point2i(0,0);
-            containerToSrc[containerID].finalSize = vcg::Point2i(
+            containerID.finalSize = vcg::Point2i(
                 srcToContainer[srcID].srcRef.get().size().width(),
                 srcToContainer[srcID].srcRef.get().size().height()
                 );
@@ -130,32 +122,32 @@ void TexturePacker::findBestPlacement() {
         }
 
         // Computing the heuristic square.
-        // The algorithm RectPacker requires an array containing all size
-        // of the source textures. We construct it in parallel with the computation
-        // of the square's area.
+        // The algorithm RectPacker requires an array containing all sizes
+        // of the source textures.
+        // We construct it in parallel with the computation of the square's area.
         std::vector<vcg::Point2i> srcSizes;
         int squareArea = 0;
-        for (const int srcID : containerToSrc[containerID].srcContained) {
+        for (const int srcID : containerID.srcContained) {
             const int srcWidth = srcToContainer[srcID].srcRef.get().size().width();
             const int srcHeight = srcToContainer[srcID].srcRef.get().size().height();
-            srcSizes.push_back(vcg::Point2i(srcWidth, srcHeight));
+            srcSizes.emplace_back(srcWidth, srcHeight);
 
             squareArea += srcWidth * srcHeight;
         }
-        const int squareSide = std::sqrt(squareArea);
-        vcg::Point2i squareSize(squareSide, squareSide);
+        const int squareSide = static_cast<int>( std::sqrt(squareArea) );
+        vcg::Point2d squareSize(squareSide, squareSide);
 
         // Trying to pack every texture in the current square
         std::vector<vcg::Point2i> srcOffsets;
         vcg::Point2i boundingBox;
         bool successPacking = false;
         while (!successPacking) {
-            // boundingBox contains the bounding box delimiting the
+            // `boundingBox` contains the bounding box delimiting the
             // square area fitting all the sources within the container.
             //
             // Maybe it could be used to set it as the optimal size
             // of the container
-            successPacking = vcg::RectPacker<float>::PackInt(
+            successPacking = vcg::RectPacker<double>::PackInt(
                 srcSizes,
                 squareSize,
                 srcOffsets,
@@ -189,15 +181,15 @@ void TexturePacker::findBestPlacement() {
         // So offset_0 is associated to the source of index 1, offset_1 to the source
         // of index 3, and so on...
         //
-        containerToSrc[containerID].finalSize = boundingBox;
+        containerID.finalSize = boundingBox;
         for (int i = 0; i < srcOffsets.size(); ++i) {
-            const int srcID = containerToSrc[containerID].srcContained[i];
+            const int srcID = containerID.srcContained[i];
             srcToContainer[srcID].containerOff = srcOffsets[i];
         }
     }
 }
 
-void TexturePacker::updateMeshUV() {
+void TexturePacker::updateMeshUV() const {
     // For each non-deleted face we retrieve its source texture id
     // which is referred to by its UV coordinates. Recall that this value
     // can be retrieved by the `N()` field.
@@ -216,14 +208,14 @@ void TexturePacker::updateMeshUV() {
     // Graphically:
     //
     //                  U
-    //      _____________>        v ^
-    //      |                       |
-    //      |                       |
-    //      |                       |
-    //      |                       |____________>
-    //   V \/                                    U
-    //          QImage                  MeshLab
-    // Thus we need to take into account the conversion while updating the V coordinate.
+    //      _____________>          v ^
+    //      |                         |
+    //      |                         |
+    //      |                         |
+    //      |                         |____________>
+    //   V \/                                      U
+    //          QImage                    MeshLab
+    // Thus, we need to take into account the conversion while updating the V coordinate.
     for (auto &face : mesh.cm.face) {
 
         if (face.IsD()) {
@@ -240,7 +232,7 @@ void TexturePacker::updateMeshUV() {
             );
 
         for (int k = 0; k < face.VN(); ++k) {
-            face.WT(k).N() = containerID;
+            face.WT(k).N() = static_cast<short>(containerID);
 
             // Wrap the original UVs to ensure they are strictly between 0.0 and 1.0
             // This is done because since the original coordinates allowed for wrap back,
@@ -251,13 +243,17 @@ void TexturePacker::updateMeshUV() {
             //
             // For this reason we enforce that all values are within 0.0 and 1.0.
             const float wrappedU = face.WT(k).U() > 1.0f ? face.WT(k).U() - std::floor(face.WT(k).U()) : face.WT(k).U();
-            const float newU = ( ( wrappedU * srcSize.X() ) + containerOff.X() ) / containerSize.X();
+            const float newU = ( ( wrappedU * static_cast<float>(srcSize.X()) ) + static_cast<float>(containerOff.X()) )
+                                / static_cast<float>(containerSize.X());
             face.WT(k).U() =  newU;
 
             // The offset for V() needs to be converted to bottom-up (meshlab coordinate system).
             const float wrappedV = face.WT(k).V() > 1.0f ? face.WT(k).V() - std::floor(face.WT(k).V()) : face.WT(k).V();
-            const float vOffsetFromBottom = containerSize.Y() - containerOff.Y() - srcSize.Y();
-            const float newV = ( ( wrappedV * srcSize.Y() ) + vOffsetFromBottom ) / containerSize.Y();
+            const float vOffsetFromBottom = static_cast<float>(containerSize.Y()) -
+                                            static_cast<float>(containerOff.Y()) -
+                                            static_cast<float>(srcSize.Y());
+            const float newV = ( ( wrappedV * static_cast<float>(srcSize.Y()) ) + vOffsetFromBottom )
+                                / static_cast<float>(containerSize.Y());
             face.WT(k).V() = newV;
         }
     }

@@ -764,17 +764,16 @@ std::map<std::string, QVariant> FilterTexturePlugin::applyFilter(
 		break;
 
 	case FP_PACK_TEXTURES: {
-		// We copy the input mesh in a new layer in which we will apply the filter's texture condensation.
+		// This filter will work on a duplicate of the input model.
 		//
-		// When retrieving the user-provided parameters, be sure that the number of source textures is
-		// strictly major than the number of requested container textures, otherwise exit immediately
-		// telling the user about it.
+		// To work, the filter requires that the number of source textures is strictly major than
+		// the number of requested container textures. Otherwise, it exits immediately.
 		//
 		// The packing process is handled by the static function `TexturePacker::simplePacking`. Be aware
-		// that the method updates the UV coordinates of the provided input mesh to take into account its
-		// new output textures. The function will return the array of final QImages.
+		// that the method updates the UV coordinates of the mesh to take into account its
+		// new output textures. The function will return the array of final containers' QImages.
 		//
-		// Substitute the current textures of the mesh with the one returned by the function.
+		// Finally, we set the new images into the current model, discarding the previous ones.
 		cb(0, "Initialization...");
 
 		int containerNum  = par.getInt("containerNum");
@@ -800,11 +799,6 @@ std::map<std::string, QVariant> FilterTexturePlugin::applyFilter(
 		outputMesh.updateDataMask();
 		for (int containerID = 0; containerID < containerTextures.size(); containerID++) {
 			outputMesh.addTexture("container_" + std::to_string(containerID), containerTextures[containerID]);
-
-			// ============ DEBUG TO REMOVE ===========
-			QImage container = containerTextures[containerID];
-			QString newName = QString("container_%1").arg(containerID);
-			container.save(newName, "PNG");
 		}
 
 		cb(100, "Done!");
