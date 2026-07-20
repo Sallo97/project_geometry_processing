@@ -211,15 +211,6 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 		break;
 	case FP_SMALL_ISLANDS_REMOVER:
 
-		// ====== MULTIPLIER FOR AVERAGE =====
-		// parlst.addParam(RichFloat(
-		// 	"maxMultiplier",
-		// 	1.0,
-		// 	"Max size multiplier <br>(relative to average island area)",
-		// 	"Islands whose UV area length is smaller than this factor times the UV area "
-		// 	"island UV area are candidates for removal."
-		// ));
-		// ====== MULTIPLIER FOR MEDIAN =====
 		parlst.addParam(RichFloat(
 			"maxMultiplier",
 			1.0,
@@ -228,7 +219,7 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 			"island boundary length are candidates for removal. A value of 1.0 targets all "
 			"below-median islands; 0.2 targets only the absolute tiniest fragments; values "
 			"above 1.0 also capture larger-than-median islands. Set to 0 to attempt removal "
-			"of all islands regardless of size."
+			"of all islands."
 		));
 		parlst.addParam(RichEnum(
 		"distortionMode",
@@ -264,7 +255,6 @@ RichParameterList FilterTextureDefragPlugin::initParameterList(const QAction *ac
 	return parlst;
 }
 
-// The Real Core Function doing the actual mesh processing.
 std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
         const QAction *filter,
         const RichParameterList &par,
@@ -285,8 +275,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 
 	cb(0, "Initializing layer...");
 
-	// We create a new MeshLab layer, denoted as `mm`, containing a copy of the current model.
-	// This filter will work on this duplicate rather than the original.
+	// The filter will work on a duplicate layer of the current model, denoted as `mm`.
 	//
 	// The texture path is saved for later use.
 	QString meshLabel;
@@ -391,7 +380,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 	log(GLLogStream::Levels::FILTER, "UV islands before defragmentation: " + std::to_string(islandsBeforeDefrag));
 
 
-	// Recall that a non-manifold vertex is one which is incident to at least two
+	// Recall that a non-manifold vertex is one that is incident to at least two
 	// distinct sheets of faces. We resolve non-manifold vertices by duplicating
 	// them such that each sheet has its own copy. These new vertices are then
 	// displaced from one another.
@@ -477,30 +466,9 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 
 
 			const double multiplier = par.getFloat("maxMultiplier");
-			// There are different ways to set the UV Area Threshold. Here are provided
-			// different implementations.
-			//
-			// ============= USE THE UV AREA DIRECTLY =============
-			// In this scenario the user chooses a value in [0-1] which identifies
-			// the percentage of UV Area that will represent the threshold.
-			// Easy to compute, not good to provide a good metric at all.
-			// ap.maxAreaThreshold = maxAreaThresholdNormalized * graph->AreaUV();
-			// log("maxAreaThreshold =" + std::to_string(ap.maxAreaThreshold));
-			//
-			// ============= USE THE AVERAGE ISLAND SIZE =============
-			// We compute the average island size within the mesh. Then the user defines
-			// a multiplier over it to determine the threshold.
-			// Fairs better compared to the raw UV area, but can lead to bad results
-			// if the distribution of islands is not equal.
-			// double avgChartArea = graph->AreaUV() / static_cast<double>(graph->charts.size());
-			// ap.maxThreshold = multiplier > 0 ? multiplier * avgChartArea : graph->AreaUV();
-			// log("avgChartArea = " + std::to_string(avgChartArea) +
-			// 	"\tmaxAreaThreshold = " + std::to_string(ap.maxThreshold));
-			//
-			// ========== TRANSLATION OVER MULTIPLIER AGAINST MEDIAN ISLAND SIZE ===========
 			// We compute the median island size within the mesh. Then the user defines
 			// a multiplier over it to determine the final threshold.
-			// We use the UV Border since it guarantees that it scaled identically when resolution changes.
+			// We use the UV Border since it guarantees that it is scaled identically when resolution changes.
 			//
 			// Compute the set of all islands' border length and sort them in increasing order
 			// Then compute the median and set the threshold.
@@ -518,7 +486,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 
 			ap.maxThreshold = multiplier > 0 ?
 				multiplier * medianBorder :
-				graph->BorderUV();
+				Infinity();
 
 			log ("medianBorder = " + std::to_string(medianBorder));
 			log ("maxBorderThreshold = " + std::to_string(ap.maxThreshold));
@@ -528,14 +496,14 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 			// the algorithm will use for `distortionTolerance` and `globalDistortionThreshold`,
 			int distortionMode = par.getInt("distortionMode");
 			switch (distortionMode) {
-				// STRICT Mode
+				// STRICT MODE
 				// More tolerant to distortion compared to standard Texture Defragmentation, still all distortion checks are done.
 				case 0:
 					ap.distortionTolerance       = 2.0;
 					ap.globalDistortionThreshold = 0.1;
 					ap.matchingThreshold         = 5.0;
 					break;
-				// LOOSE Mode:
+				// LOOSE MODE:
 				// All checks regarding the distortion introduced by a merge operation are ignored.
 				case 1:
 					ap.distortionTolerance = Infinity();
@@ -543,7 +511,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 					// To avoid the check of `avgError` in `ComputeCost`(seam_remover.cpp) at ~row 933.
 					ap.matchingThreshold = Infinity();
 					break;
-				// UNSAFE Mode:
+				// UNSAFE MODE:
 				// All checks regarding both distortions and fold/overlaps are ignored.
 				case 2:
 					ap.distortionTolerance = Infinity();
@@ -552,6 +520,7 @@ std::map<std::string, QVariant> FilterTextureDefragPlugin::applyFilter(
 					ap.skipOverlapChecks = true;
 					break;
 				default:
+					// The default case behaves like the STRICT MODE.
 					ap.distortionTolerance       = 2.0;
 					ap.globalDistortionThreshold = 0.1;
 					ap.matchingThreshold         = 5.0;
